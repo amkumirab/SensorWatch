@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sensorwatch"
+version = "0.1.0"
+description = "Streaming sensor monitoring with robust rolling anomaly detection."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "AmirAli Mirabzadeh Ardekani" }]
+keywords = ["anomaly-detection", "fastapi", "industrial-iot", "monitoring", "telemetry"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Framework :: FastAPI",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+  "Topic :: System :: Monitoring",
+]
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "sqlalchemy>=2.0,<3.0",
+  "uvicorn[standard]>=0.34,<1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/amkumirab/SensorWatch"
+Repository = "https://github.com/amkumirab/SensorWatch.git"
+Issues = "https://github.com/amkumirab/SensorWatch/issues"
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1.0",
+  "pytest>=8.3,<9.0",
+  "pytest-cov>=6.0,<7.0",
+  "ruff>=0.9,<1.0",
+]
+
+[project.scripts]
+sensorwatch = "sensorwatch.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sensorwatch = ["static/*.html", "static/*.css", "static/*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 96
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

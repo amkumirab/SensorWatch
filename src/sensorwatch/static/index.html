@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="SensorWatch anomaly monitoring dashboard" />
+    <title>SensorWatch</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="SensorWatch home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>SensorWatch</span>
+      </a>
+      <div class="topbar-actions">
+        <span id="connection" class="connection"><i></i> API connected</span>
+        <a class="button ghost" href="/docs">API docs</a>
+        <button id="generate-demo" class="button primary" type="button">Generate demo data</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">OPERATIONS / LIVE MONITORING</p>
+          <h1>Equipment health at a glance.</h1>
+          <p class="hero-copy">
+            Streaming telemetry, robust rolling baselines, and explainable anomaly scores.
+          </p>
+        </div>
+        <div class="updated">Last refresh <strong id="last-refresh">—</strong></div>
+      </section>
+
+      <section class="kpi-grid" aria-label="Monitoring summary">
+        <article class="kpi-card">
+          <span>Total readings</span>
+          <strong id="total-readings">0</strong>
+          <small>In the local event store</small>
+        </article>
+        <article class="kpi-card">
+          <span>Detected anomalies</span>
+          <strong id="total-anomalies">0</strong>
+          <small id="anomaly-rate">0.0% anomaly rate</small>
+        </article>
+        <article class="kpi-card">
+          <span>Active series</span>
+          <strong id="active-series">0</strong>
+          <small>Sensor and metric pairs</small>
+        </article>
+        <article class="kpi-card status-card">
+          <span>System status</span>
+          <strong><i></i> Monitoring</strong>
+          <small>Rolling MAD detector online</small>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <article class="panel chart-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">LIVE TELEMETRY</p>
+              <h2 id="chart-title">Select a sensor series</h2>
+            </div>
+            <select id="series-select" aria-label="Sensor series">
+              <option value="">No series available</option>
+            </select>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="telemetry-chart" aria-label="Sensor telemetry chart"></canvas>
+            <div id="chart-empty" class="empty-state">
+              <strong>No telemetry yet</strong>
+              <span>Generate demo data or send readings through the API.</span>
+            </div>
+          </div>
+          <div class="legend">
+            <span><i class="dot normal"></i> Normal reading</span>
+            <span><i class="dot anomaly"></i> Anomaly</span>
+            <span><i class="line"></i> Observed value</span>
+          </div>
+        </article>
+
+        <article class="panel fleet-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">FLEET</p>
+              <h2>Sensor series</h2>
+            </div>
+            <span id="series-count" class="count-badge">0</span>
+          </div>
+          <div id="sensor-list" class="sensor-list">
+            <div class="empty-list">No sensors registered.</div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel anomalies-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">ATTENTION REQUIRED</p>
+            <h2>Recent anomalies</h2>
+          </div>
+          <span class="explanation">Score is distance from the rolling median baseline.</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Sensor</th>
+                <th>Metric</th>
+                <th>Observed</th>
+                <th>Baseline</th>
+                <th>Score</th>
+              </tr>
+            </thead>
+            <tbody id="anomaly-table">
+              <tr><td colspan="6" class="table-empty">No anomalies detected.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

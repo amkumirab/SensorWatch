@@ -1,0 +1,14 @@
+services:
+  sensorwatch:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      SENSORWATCH_DATABASE_URL: sqlite:////app/data/sensorwatch.db
+      SENSORWATCH_DEMO_ENABLED: "true"
+    volumes:
+      - sensorwatch-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  sensorwatch-data:
