@@ -5,8 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-43e6a8.svg)](LICENSE)
 
 SensorWatch is a compact industrial telemetry MVP. It accepts sensor readings through a
-FastAPI service, stores them in SQLite, builds an independent rolling baseline for every
-sensor/metric pair, and flags unusual values in a live monitoring dashboard.
+FastAPI service, stores them in PostgreSQL or SQLite, builds an independent rolling baseline
+for every sensor/metric pair, and flags unusual values in a live monitoring dashboard.
 
 The detector uses the median and median absolute deviation (MAD), making it more robust to
 spikes than a mean and standard-deviation baseline. Every decision includes an anomaly score,
@@ -20,7 +20,7 @@ baseline center, and baseline scale so the result remains explainable.
 - Single and batch telemetry ingestion
 - Independent rolling baselines per sensor and metric
 - Robust MAD anomaly scoring with warm-up state
-- Persistent SQLite event store
+- PostgreSQL and SQLite persistence managed with Alembic migrations
 - Summary, fleet, telemetry, and anomaly APIs
 - Responsive dependency-free monitoring dashboard
 - Deterministic three-sensor demo-data generator
@@ -34,7 +34,7 @@ baseline center, and baseline scale so the result remains explainable.
 flowchart LR
     A[Sensor or gateway] -->|JSON telemetry| B[FastAPI ingestion]
     B --> C[Rolling MAD detector]
-    C --> D[(SQLite event store)]
+    C --> D[(PostgreSQL or SQLite)]
     D --> E[Summary and query API]
     E --> F[Live operations dashboard]
 ```
@@ -53,6 +53,7 @@ Windows PowerShell:
 py -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
+sensorwatch migrate
 sensorwatch
 ```
 
@@ -62,19 +63,49 @@ macOS or Linux:
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
+sensorwatch migrate
 sensorwatch
 ```
 
 Open <http://127.0.0.1:8000>. Press **Generate demo data** to create temperature,
 vibration, and pressure telemetry with a few injected faults.
 
-## Run with Docker
+The local default is SQLite, which keeps the quick start self-contained. Database changes are
+applied through Alembic before the service starts.
+
+## Run with Docker and PostgreSQL
 
 ```bash
 docker compose up --build
 ```
 
-The named Docker volume preserves the SQLite database between container restarts.
+Docker Compose starts PostgreSQL, waits for its health check, applies all migrations, and then
+starts SensorWatch. The named PostgreSQL volume preserves telemetry between container restarts.
+The default credentials are intended for local development; override them in a local `.env`
+file before using the stack outside a development machine.
+
+## Database migrations
+
+Apply every pending migration to the database selected by `SENSORWATCH_DATABASE_URL`:
+
+```bash
+sensorwatch migrate
+```
+
+The command accepts SQLite, `postgresql://`, `postgres://`, and explicit
+`postgresql+psycopg://` URLs. Common hosted PostgreSQL URL formats are normalized to the
+psycopg 3 driver automatically.
+
+To create a migration after changing the SQLAlchemy models:
+
+```bash
+alembic revision --autogenerate -m "Describe the schema change"
+alembic upgrade head
+```
+
+The initial migration creates the telemetry table and all query indexes. Migration behavior is
+tested against SQLite on every supported Python version and against a real PostgreSQL service
+in GitHub Actions.
 
 ## Send a reading
 
@@ -129,6 +160,12 @@ ruff check .
 pytest --cov=sensorwatch --cov-report=term-missing
 ```
 
+Install PostgreSQL support for development with:
+
+```bash
+python -m pip install -e ".[dev,postgres]"
+```
+
 ## API overview
 
 | Method | Path | Purpose |
@@ -143,7 +180,7 @@ pytest --cov=sensorwatch --cov-report=term-missing
 
 ## Production roadmap
 
-- PostgreSQL/TimescaleDB storage and schema migrations
+- Optional TimescaleDB hypertables for long-running telemetry stores
 - Redis Streams or Kafka ingestion workers
 - Device authentication and per-tenant access control
 - Alert rules, acknowledgements, and escalation policies
@@ -155,7 +192,8 @@ pytest --cov=sensorwatch --cov-report=term-missing
 
 - The MVP runs detection inline with ingestion.
 - A late historical reading is scored against the latest stored baseline.
-- SQLite is appropriate for a local demonstration, not high-volume concurrent ingestion.
+- SQLite remains useful for a local demonstration; PostgreSQL is recommended for concurrent
+  ingestion and container deployments.
 - The demo endpoint should be disabled in a public production deployment.
 - Thresholds are global; production equipment normally needs per-series configuration.
 

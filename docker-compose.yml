@@ -1,14 +1,30 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sensorwatch}
+      POSTGRES_USER: ${POSTGRES_USER:-sensorwatch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sensorwatch-dev}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
   sensorwatch:
     build: .
     ports:
       - "8000:8000"
     environment:
-      SENSORWATCH_DATABASE_URL: sqlite:////app/data/sensorwatch.db
+      SENSORWATCH_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sensorwatch}:${POSTGRES_PASSWORD:-sensorwatch-dev}@postgres:5432/${POSTGRES_DB:-sensorwatch}
       SENSORWATCH_DEMO_ENABLED: "true"
-    volumes:
-      - sensorwatch-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  sensorwatch-data:
+  postgres-data:

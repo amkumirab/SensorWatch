@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
@@ -12,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from sensorwatch.config import get_settings
-from sensorwatch.db import get_db, init_db
+from sensorwatch.db import get_db
 from sensorwatch.demo import generate_demo_readings
 from sensorwatch.schemas import (
     BatchResponse,
@@ -29,17 +27,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 settings = get_settings()
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    init_db()
-    yield
-
-
 app = FastAPI(
     title="SensorWatch API",
     version="0.1.0",
     description="Streaming sensor ingestion and robust rolling anomaly detection.",
-    lifespan=lifespan,
 )
 app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
 

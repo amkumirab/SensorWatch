@@ -8,7 +8,7 @@ WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 
-RUN python -m pip install --no-cache-dir .
+RUN python -m pip install --no-cache-dir ".[postgres]"
 
 RUN mkdir -p /app/data && useradd --create-home --uid 10001 sensorwatch \
     && chown -R sensorwatch:sensorwatch /app
@@ -16,4 +16,4 @@ USER sensorwatch
 
 EXPOSE 8000
 
-CMD ["uvicorn", "sensorwatch.api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "sensorwatch migrate && exec uvicorn sensorwatch.api:app --host 0.0.0.0 --port 8000"]

@@ -23,6 +23,7 @@ classifiers = [
   "Topic :: System :: Monitoring",
 ]
 dependencies = [
+  "alembic>=1.14,<2.0",
   "fastapi>=0.115,<1.0",
   "sqlalchemy>=2.0,<3.0",
   "uvicorn[standard]>=0.34,<1.0",
@@ -34,6 +35,9 @@ Repository = "https://github.com/amkumirab/SensorWatch.git"
 Issues = "https://github.com/amkumirab/SensorWatch/issues"
 
 [project.optional-dependencies]
+postgres = [
+  "psycopg[binary]>=3.2,<4.0",
+]
 dev = [
   "httpx>=0.28,<1.0",
   "pytest>=8.3,<9.0",
@@ -48,11 +52,14 @@ sensorwatch = "sensorwatch.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sensorwatch = ["static/*.html", "static/*.css", "static/*.js"]
+sensorwatch = ["migrations/*.mako", "static/*.html", "static/*.css", "static/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.coverage.run]
+omit = ["src/sensorwatch/migrations/*"]
 
 [tool.ruff]
 line-length = 96

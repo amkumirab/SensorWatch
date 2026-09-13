@@ -23,3 +23,33 @@ jobs:
       - run: python -m pip install -e ".[dev]"
       - run: ruff check .
       - run: pytest --cov=sensorwatch --cov-report=term-missing
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: sensorwatch
+          POSTGRES_USER: sensorwatch
+          POSTGRES_PASSWORD: sensorwatch
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sensorwatch -d sensorwatch"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SENSORWATCH_DATABASE_URL: postgresql+psycopg://sensorwatch:sensorwatch@localhost:5432/sensorwatch
+      SENSORWATCH_TEST_POSTGRES_URL: postgresql+psycopg://sensorwatch:sensorwatch@localhost:5432/sensorwatch
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev,postgres]"
+      - run: sensorwatch migrate
+      - run: pytest tests/test_postgres.py

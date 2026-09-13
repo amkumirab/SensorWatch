@@ -1,0 +1,1 @@
+"""SensorWatch schema revisions."""

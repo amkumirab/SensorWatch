@@ -14,11 +14,20 @@ class Settings:
     demo_enabled: bool
 
 
+def normalize_database_url(database_url: str) -> str:
+    """Use psycopg 3 for PostgreSQL URLs, including common hosting aliases."""
+    if database_url.startswith("postgres://"):
+        return database_url.replace("postgres://", "postgresql+psycopg://", 1)
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return database_url
+
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings(
-        database_url=os.getenv(
-            "SENSORWATCH_DATABASE_URL", "sqlite:///./data/sensorwatch.db"
+        database_url=normalize_database_url(
+            os.getenv("SENSORWATCH_DATABASE_URL", "sqlite:///./data/sensorwatch.db")
         ),
         detector_window=int(os.getenv("SENSORWATCH_DETECTOR_WINDOW", "40")),
         detector_min_samples=int(
