@@ -21,6 +21,7 @@ baseline center, and baseline scale so the result remains explainable.
 - Independent rolling baselines per sensor and metric
 - Robust MAD anomaly scoring with warm-up state
 - PostgreSQL and SQLite persistence managed with Alembic migrations
+- Transactional alert creation with acknowledge and resolve workflows
 - Summary, fleet, telemetry, and anomaly APIs
 - Responsive dependency-free monitoring dashboard
 - Deterministic three-sensor demo-data generator
@@ -35,8 +36,10 @@ flowchart LR
     A[Sensor or gateway] -->|JSON telemetry| B[FastAPI ingestion]
     B --> C[Rolling MAD detector]
     C --> D[(PostgreSQL or SQLite)]
-    D --> E[Summary and query API]
-    E --> F[Live operations dashboard]
+    C --> E[Alert lifecycle]
+    D --> F[Summary and query API]
+    E --> F
+    F --> G[Live operations dashboard]
 ```
 
 For each reading, SensorWatch loads the most recent values from the same sensor/metric series.
@@ -107,6 +110,16 @@ The initial migration creates the telemetry table and all query indexes. Migrati
 tested against SQLite on every supported Python version and against a real PostgreSQL service
 in GitHub Actions.
 
+## Alert workflow
+
+Every anomalous reading creates one alert in the same database transaction. Alerts start in
+the `open` state, must be acknowledged by an operator, and can then be resolved. Repeating the
+same action is safe, while an invalid state transition returns HTTP `409 Conflict`.
+
+Severity is derived from the anomaly score: readings at least twice the configured detector
+threshold are `critical`; other anomalies are `warning`. The dashboard shows active alerts and
+lets an operator acknowledge or resolve them without leaving the monitoring view.
+
 ## Send a reading
 
 ```bash
@@ -175,6 +188,9 @@ python -m pip install -e ".[dev,postgres]"
 | `GET` | `/api/v1/readings` | Query telemetry and anomalies |
 | `GET` | `/api/v1/summary` | Retrieve operational totals |
 | `GET` | `/api/v1/sensors` | List sensor/metric series |
+| `GET` | `/api/v1/alerts` | Query alerts by state or severity |
+| `POST` | `/api/v1/alerts/{id}/acknowledge` | Acknowledge an open alert |
+| `POST` | `/api/v1/alerts/{id}/resolve` | Resolve an acknowledged alert |
 | `POST` | `/api/v1/demo/generate` | Generate reproducible demo telemetry |
 | `GET` | `/health` | Database-backed health check |
 
@@ -183,7 +199,7 @@ python -m pip install -e ".[dev,postgres]"
 - Optional TimescaleDB hypertables for long-running telemetry stores
 - Redis Streams or Kafka ingestion workers
 - Device authentication and per-tenant access control
-- Alert rules, acknowledgements, and escalation policies
+- Configurable alert rules and escalation policies
 - Prometheus metrics and OpenTelemetry traces
 - Drift detection and scheduled model retraining
 - WebSocket updates rather than dashboard polling

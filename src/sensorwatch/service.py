@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime, timezone
 
 from sqlalchemy import desc, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from sensorwatch.config import Settings
 from sensorwatch.detector import RollingMadDetector
-from sensorwatch.models import SensorReading
+from sensorwatch.models import Alert, SensorReading
 from sensorwatch.schemas import (
     OverviewResponse,
     ReadingCreate,
@@ -51,7 +52,87 @@ class ReadingService:
         )
         self.db.add(row)
         self.db.flush()
+        if detection.is_anomaly:
+            severity = (
+                "critical"
+                if detection.score >= self.detector.threshold * 2
+                else "warning"
+            )
+            self.db.add(
+                Alert(
+                    reading_id=row.id,
+                    severity=severity,
+                    status="open",
+                    message=(
+                        f"{severity.title()} {payload.metric} anomaly detected "
+                        f"on {payload.sensor_id}"
+                    ),
+                )
+            )
+            self.db.flush()
         return row
+
+
+class AlertStateError(ValueError):
+    pass
+
+
+def _get_alert_for_update(db: Session, alert_id: int) -> Alert | None:
+    return db.scalar(
+        select(Alert)
+        .options(joinedload(Alert.reading))
+        .where(Alert.id == alert_id)
+        .with_for_update()
+    )
+
+
+def list_alerts(
+    db: Session,
+    *,
+    status: str | None = None,
+    severity: str | None = None,
+    active_only: bool = False,
+    limit: int = 100,
+) -> list[Alert]:
+    statement = select(Alert).options(joinedload(Alert.reading))
+    if status:
+        statement = statement.where(Alert.status == status)
+    if severity:
+        statement = statement.where(Alert.severity == severity)
+    if active_only:
+        statement = statement.where(Alert.status != "resolved")
+    statement = statement.order_by(desc(Alert.created_at), desc(Alert.id)).limit(limit)
+    return list(db.scalars(statement).all())
+
+
+def acknowledge_alert(db: Session, alert_id: int, operator: str) -> Alert | None:
+    alert = _get_alert_for_update(db, alert_id)
+    if alert is None:
+        return None
+    if alert.status == "acknowledged":
+        return alert
+    if alert.status != "open":
+        raise AlertStateError(f"Cannot acknowledge an alert in {alert.status} state")
+    alert.status = "acknowledged"
+    alert.acknowledged_at = datetime.now(timezone.utc)
+    alert.acknowledged_by = operator
+    db.flush()
+    return alert
+
+
+def resolve_alert(db: Session, alert_id: int, operator: str) -> Alert | None:
+    alert = _get_alert_for_update(db, alert_id)
+    if alert is None:
+        return None
+    if alert.status == "resolved":
+        return alert
+    if alert.status != "acknowledged":
+        raise AlertStateError("An alert must be acknowledged before it can be resolved")
+    alert.status = "resolved"
+    alert.resolved_at = datetime.now(timezone.utc)
+    alert.resolved_by = operator
+    db.flush()
+    return alert
 
 
 def list_readings(

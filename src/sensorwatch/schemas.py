@@ -46,6 +46,38 @@ class BatchResponse(BaseModel):
     readings: list[ReadingResponse]
 
 
+class AlertTransitionRequest(BaseModel):
+    operator: str = Field(
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_.@ -]+$",
+    )
+
+    @field_validator("operator")
+    @classmethod
+    def normalize_operator(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("operator must not be blank")
+        return normalized
+
+
+class AlertResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    reading_id: int
+    severity: str
+    status: str
+    message: str
+    created_at: datetime
+    acknowledged_at: datetime | None
+    acknowledged_by: str | None
+    resolved_at: datetime | None
+    resolved_by: str | None
+    reading: ReadingResponse
+
+
 class SensorSeriesSummary(BaseModel):
     sensor_id: str
     metric: str

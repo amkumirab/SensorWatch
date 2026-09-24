@@ -2,8 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sensorwatch.db import Base
 
@@ -28,3 +37,35 @@ class SensorReading(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+    __table_args__ = (
+        CheckConstraint(
+            "severity IN ('warning', 'critical')", name="ck_alerts_severity"
+        ),
+        CheckConstraint(
+            "status IN ('open', 'acknowledged', 'resolved')", name="ck_alerts_status"
+        ),
+        Index("ix_alerts_status_created", "status", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    reading_id: Mapped[int] = mapped_column(
+        ForeignKey("sensor_readings.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    severity: Mapped[str] = mapped_column(String(16), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="open", index=True)
+    message: Mapped[str] = mapped_column(String(240))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True
+    )
+    acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    acknowledged_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
+    reading: Mapped[SensorReading] = relationship(lazy="joined")

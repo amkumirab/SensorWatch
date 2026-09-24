@@ -4,7 +4,7 @@ from pathlib import Path
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
-from sensorwatch.db import Base, make_engine
+from sensorwatch.db import make_engine
 from sensorwatch.migration import upgrade_database
 from sensorwatch.models import SensorReading
 
@@ -17,7 +17,9 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
 
     engine = make_engine(database_url)
     inspector = inspect(engine)
-    assert {"alembic_version", "sensor_readings"}.issubset(inspector.get_table_names())
+    assert {"alembic_version", "sensor_readings", "alerts"}.issubset(
+        inspector.get_table_names()
+    )
     assert {column["name"] for column in inspector.get_columns("sensor_readings")} == {
         "id",
         "sensor_id",
@@ -32,18 +34,30 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
         "baseline_scale",
         "created_at",
     }
+    assert {column["name"] for column in inspector.get_columns("alerts")} == {
+        "id",
+        "reading_id",
+        "severity",
+        "status",
+        "message",
+        "created_at",
+        "acknowledged_at",
+        "acknowledged_by",
+        "resolved_at",
+        "resolved_by",
+    }
     with engine.connect() as connection:
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "20260913_0001"
+    assert revision == "20260924_0002"
     engine.dispose()
 
 
 def test_migration_stamps_legacy_schema_without_losing_data(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'legacy.db'}"
     engine = make_engine(database_url)
-    Base.metadata.create_all(bind=engine)
+    SensorReading.__table__.create(bind=engine)
     with Session(engine) as session:
         session.add(
             SensorReading(
@@ -67,6 +81,6 @@ def test_migration_stamps_legacy_schema_without_losing_data(tmp_path: Path) -> N
         reading_count = connection.execute(
             text("SELECT COUNT(*) FROM sensor_readings")
         ).scalar_one()
-    assert revision == "20260913_0001"
+    assert revision == "20260924_0002"
     assert reading_count == 1
     migrated_engine.dispose()

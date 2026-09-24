@@ -95,6 +95,37 @@
         </article>
       </section>
 
+      <section class="panel alerts-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">INCIDENT WORKFLOW</p>
+            <h2>Active alerts</h2>
+          </div>
+          <div class="alert-controls">
+            <label for="operator-name">Operator</label>
+            <input id="operator-name" type="text" value="operator" maxlength="80" />
+            <span id="active-alert-count" class="count-badge">0</span>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Severity</th>
+                <th>Sensor</th>
+                <th>Alert</th>
+                <th>Created</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="alert-table">
+              <tr><td colspan="6" class="table-empty">No active alerts.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="panel anomalies-panel">
         <div class="panel-header">
           <div>

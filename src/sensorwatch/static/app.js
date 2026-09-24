@@ -1,4 +1,4 @@
-const state = { summary: null, sensors: [], readings: [], selectedKey: "" };
+const state = { summary: null, sensors: [], readings: [], alerts: [], selectedKey: "" };
 const $ = (selector) => document.querySelector(selector);
 
 function showToast(message, isError = false) {
@@ -165,6 +165,27 @@ function renderAnomalies(anomalies) {
   </tr>`).join("");
 }
 
+function renderAlerts() {
+  const table = $("#alert-table");
+  $("#active-alert-count").textContent = state.alerts.length;
+  if (!state.alerts.length) {
+    table.innerHTML = '<tr><td colspan="6" class="table-empty">No active alerts.</td></tr>';
+    return;
+  }
+  table.innerHTML = state.alerts.map((alert) => {
+    const action = alert.status === "open" ? "acknowledge" : "resolve";
+    const actionLabel = alert.status === "open" ? "Acknowledge" : "Resolve";
+    return `<tr>
+      <td><span class="status-badge ${alert.status}">${escapeHtml(alert.status)}</span></td>
+      <td><span class="severity-badge ${alert.severity}">${escapeHtml(alert.severity)}</span></td>
+      <td><strong>${escapeHtml(alert.reading.sensor_id)}</strong><br><small>${escapeHtml(alert.reading.metric)}</small></td>
+      <td class="alert-message">${escapeHtml(alert.message)}</td>
+      <td>${dateTime(alert.created_at)}</td>
+      <td><button class="button compact alert-action" type="button" data-alert-id="${alert.id}" data-action="${action}">${actionLabel}</button></td>
+    </tr>`;
+  }).join("");
+}
+
 async function loadSelectedSeries() {
   if (!state.selectedKey) { state.readings = []; drawChart(); return; }
   const [sensorId, metric] = state.selectedKey.split("::");
@@ -182,13 +203,14 @@ async function selectSeries(key) {
 
 async function refresh() {
   try {
-    const [summary, sensors, anomalies] = await Promise.all([
+    const [summary, sensors, anomalies, alerts] = await Promise.all([
       request("/api/v1/summary"),
       request("/api/v1/sensors"),
       request("/api/v1/readings?anomalies_only=true&limit=12"),
+      request("/api/v1/alerts?active_only=true&limit=12"),
     ]);
-    state.summary = summary; state.sensors = sensors;
-    renderSummary(); renderSensors(); renderAnomalies(anomalies);
+    state.summary = summary; state.sensors = sensors; state.alerts = alerts;
+    renderSummary(); renderSensors(); renderAnomalies(anomalies); renderAlerts();
     await loadSelectedSeries();
     $("#connection").classList.remove("offline");
     $("#connection").lastChild.textContent = " API connected";
@@ -200,6 +222,28 @@ async function refresh() {
 }
 
 $("#series-select").addEventListener("change", (event) => selectSeries(event.target.value));
+$("#alert-table").addEventListener("click", async (event) => {
+  const button = event.target.closest(".alert-action");
+  if (!button) return;
+  const operator = $("#operator-name").value.trim();
+  if (!operator) {
+    showToast("Enter an operator name before updating an alert", true);
+    $("#operator-name").focus();
+    return;
+  }
+  button.disabled = true;
+  try {
+    await request(`/api/v1/alerts/${button.dataset.alertId}/${button.dataset.action}`, {
+      method: "POST",
+      body: JSON.stringify({ operator }),
+    });
+    showToast(`Alert ${button.dataset.action}d`);
+    await refresh();
+  } catch (error) {
+    showToast(error.message, true);
+    button.disabled = false;
+  }
+});
 $("#generate-demo").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   button.disabled = true; button.textContent = "Generating…";

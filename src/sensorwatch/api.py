@@ -13,6 +13,8 @@ from sensorwatch.config import get_settings
 from sensorwatch.db import get_db
 from sensorwatch.demo import generate_demo_readings
 from sensorwatch.schemas import (
+    AlertResponse,
+    AlertTransitionRequest,
     BatchResponse,
     DemoGenerateRequest,
     OverviewResponse,
@@ -21,7 +23,16 @@ from sensorwatch.schemas import (
     ReadingResponse,
     SensorSeriesSummary,
 )
-from sensorwatch.service import ReadingService, list_readings, overview, series_summaries
+from sensorwatch.service import (
+    AlertStateError,
+    ReadingService,
+    acknowledge_alert,
+    list_alerts,
+    list_readings,
+    overview,
+    resolve_alert,
+    series_summaries,
+)
 
 STATIC_DIR = Path(__file__).parent / "static"
 settings = get_settings()
@@ -29,7 +40,7 @@ settings = get_settings()
 
 app = FastAPI(
     title="SensorWatch API",
-    version="0.1.0",
+    version="0.2.0",
     description="Streaming sensor ingestion and robust rolling anomaly detection.",
 )
 app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
@@ -96,6 +107,54 @@ def get_summary(db: Database) -> OverviewResponse:
 @app.get("/api/v1/sensors", response_model=list[SensorSeriesSummary])
 def get_sensors(db: Database) -> list[SensorSeriesSummary]:
     return series_summaries(db)
+
+
+@app.get("/api/v1/alerts", response_model=list[AlertResponse])
+def get_alerts(
+    db: Database,
+    status: Annotated[str | None, Query(pattern="^(open|acknowledged|resolved)$")] = None,
+    severity: Annotated[str | None, Query(pattern="^(warning|critical)$")] = None,
+    active_only: bool = False,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> list[AlertResponse]:
+    return [
+        AlertResponse.model_validate(alert)
+        for alert in list_alerts(
+            db,
+            status=status,
+            severity=severity,
+            active_only=active_only,
+            limit=limit,
+        )
+    ]
+
+
+@app.post("/api/v1/alerts/{alert_id}/acknowledge", response_model=AlertResponse)
+def acknowledge(
+    alert_id: int, payload: AlertTransitionRequest, db: Database
+) -> AlertResponse:
+    try:
+        alert = acknowledge_alert(db, alert_id, payload.operator)
+    except AlertStateError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    db.commit()
+    db.refresh(alert)
+    return AlertResponse.model_validate(alert)
+
+
+@app.post("/api/v1/alerts/{alert_id}/resolve", response_model=AlertResponse)
+def resolve(alert_id: int, payload: AlertTransitionRequest, db: Database) -> AlertResponse:
+    try:
+        alert = resolve_alert(db, alert_id, payload.operator)
+    except AlertStateError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    db.commit()
+    db.refresh(alert)
+    return AlertResponse.model_validate(alert)
 
 
 @app.post("/api/v1/demo/generate", response_model=BatchResponse, status_code=201)

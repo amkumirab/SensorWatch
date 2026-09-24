@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from sensorwatch.config import Settings, normalize_database_url
 from sensorwatch.db import make_engine
-from sensorwatch.models import SensorReading
+from sensorwatch.models import Alert, SensorReading
 from sensorwatch.schemas import ReadingCreate
 from sensorwatch.service import ReadingService
 
@@ -31,7 +31,9 @@ def test_postgres_migration_and_reading_round_trip() -> None:
     )
 
     assert engine.dialect.name == "postgresql"
-    assert {"alembic_version", "sensor_readings"}.issubset(inspect(engine).get_table_names())
+    assert {"alembic_version", "sensor_readings", "alerts"}.issubset(
+        inspect(engine).get_table_names()
+    )
 
     with Session(engine) as session:
         service = ReadingService(session, settings)
@@ -50,6 +52,10 @@ def test_postgres_migration_and_reading_round_trip() -> None:
         assert session.scalar(
             select(SensorReading).where(SensorReading.id == anomaly.id)
         ) is anomaly
+        alert = session.scalar(select(Alert).where(Alert.reading_id == anomaly.id))
+        assert alert is not None
+        assert alert.status == "open"
+        assert alert.severity == "critical"
         assert session.execute(text("SELECT 1")).scalar_one() == 1
         session.rollback()
 
