@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from sensorwatch.auth import require_ingest_api_key
 from sensorwatch.config import get_settings
 from sensorwatch.db import get_db
 from sensorwatch.demo import generate_demo_readings
@@ -40,7 +41,7 @@ settings = get_settings()
 
 app = FastAPI(
     title="SensorWatch API",
-    version="0.2.0",
+    version="0.3.0",
     description="Streaming sensor ingestion and robust rolling anomaly detection.",
 )
 app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
@@ -59,7 +60,12 @@ def health(db: Database) -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/api/v1/readings", response_model=ReadingResponse, status_code=201)
+@app.post(
+    "/api/v1/readings",
+    response_model=ReadingResponse,
+    status_code=201,
+    dependencies=[Depends(require_ingest_api_key)],
+)
 def create_reading(payload: ReadingCreate, db: Database) -> ReadingResponse:
     row = ReadingService(db, settings).add(payload)
     db.commit()
@@ -67,7 +73,12 @@ def create_reading(payload: ReadingCreate, db: Database) -> ReadingResponse:
     return ReadingResponse.model_validate(row)
 
 
-@app.post("/api/v1/readings/batch", response_model=BatchResponse, status_code=201)
+@app.post(
+    "/api/v1/readings/batch",
+    response_model=BatchResponse,
+    status_code=201,
+    dependencies=[Depends(require_ingest_api_key)],
+)
 def create_reading_batch(payload: ReadingBatchCreate, db: Database) -> BatchResponse:
     service = ReadingService(db, settings)
     rows = [service.add(reading) for reading in payload.readings]
@@ -157,7 +168,12 @@ def resolve(alert_id: int, payload: AlertTransitionRequest, db: Database) -> Ale
     return AlertResponse.model_validate(alert)
 
 
-@app.post("/api/v1/demo/generate", response_model=BatchResponse, status_code=201)
+@app.post(
+    "/api/v1/demo/generate",
+    response_model=BatchResponse,
+    status_code=201,
+    dependencies=[Depends(require_ingest_api_key)],
+)
 def generate_demo(payload: DemoGenerateRequest, db: Database) -> BatchResponse:
     if not settings.demo_enabled:
         raise HTTPException(status_code=404, detail="Demo generation is disabled")

@@ -18,6 +18,8 @@ severity and reproducibility of the report.
 ## Deployment guidance
 
 The default configuration is intended for local demonstration. Before exposing SensorWatch to
-untrusted networks, disable the demo endpoint, add device authentication and tenant isolation,
-use TLS, configure request limits, move persistence to a production database, and establish
-monitoring and backup policies.
+untrusted networks, configure `SENSORWATCH_INGEST_API_KEY`, disable the demo endpoint, put the
+read and alert-management routes behind an authenticating reverse proxy, use TLS, configure
+request limits, move persistence to a production database, and establish monitoring and backup
+policies. The built-in API key protects ingestion but does not yet provide per-device keys,
+rotation, or tenant isolation.

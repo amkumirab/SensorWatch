@@ -18,6 +18,7 @@ baseline center, and baseline scale so the result remains explainable.
 ## Features
 
 - Single and batch telemetry ingestion
+- Optional API key authentication for telemetry ingestion
 - Independent rolling baselines per sensor and metric
 - Robust MAD anomaly scoring with warm-up state
 - PostgreSQL and SQLite persistence managed with Alembic migrations
@@ -33,7 +34,7 @@ baseline center, and baseline scale so the result remains explainable.
 
 ```mermaid
 flowchart LR
-    A[Sensor or gateway] -->|JSON telemetry| B[FastAPI ingestion]
+    A[Sensor or gateway] -->|Authenticated JSON telemetry| B[FastAPI ingestion]
     B --> C[Rolling MAD detector]
     C --> D[(PostgreSQL or SQLite)]
     C --> E[Alert lifecycle]
@@ -122,9 +123,24 @@ lets an operator acknowledge or resolve them without leaving the monitoring view
 
 ## Send a reading
 
+Ingestion authentication is disabled by default for local development. To enable it, generate
+a strong key and set `SENSORWATCH_INGEST_API_KEY` before starting the service:
+
+```powershell
+$env:SENSORWATCH_INGEST_API_KEY = py -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+```bash
+export SENSORWATCH_INGEST_API_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+```
+
+When authentication is enabled, send the same key in the `X-API-Key` header. SensorWatch keeps
+only a SHA-256 fingerprint in application settings and uses a constant-time comparison.
+
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/readings \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: $SENSORWATCH_INGEST_API_KEY" \
   -d '{
     "sensor_id": "boiler-01",
     "metric": "temperature",
@@ -165,6 +181,7 @@ Copy `.env.example` or set environment variables before starting the service.
 | `SENSORWATCH_DETECTOR_MIN_SAMPLES` | `12` | Warm-up samples before classification |
 | `SENSORWATCH_DETECTOR_THRESHOLD` | `3.5` | Minimum robust score for an anomaly |
 | `SENSORWATCH_DEMO_ENABLED` | `true` | Enable the demo-data endpoint |
+| `SENSORWATCH_INGEST_API_KEY` | unset | Protect ingestion and demo generation with `X-API-Key` |
 
 ## Development
 
@@ -183,22 +200,22 @@ python -m pip install -e ".[dev,postgres]"
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/v1/readings` | Ingest one reading |
-| `POST` | `/api/v1/readings/batch` | Ingest up to 500 readings atomically |
+| `POST` | `/api/v1/readings` | Ingest one reading; API key protected when configured |
+| `POST` | `/api/v1/readings/batch` | Ingest up to 500 readings atomically; API key protected when configured |
 | `GET` | `/api/v1/readings` | Query telemetry and anomalies |
 | `GET` | `/api/v1/summary` | Retrieve operational totals |
 | `GET` | `/api/v1/sensors` | List sensor/metric series |
 | `GET` | `/api/v1/alerts` | Query alerts by state or severity |
 | `POST` | `/api/v1/alerts/{id}/acknowledge` | Acknowledge an open alert |
 | `POST` | `/api/v1/alerts/{id}/resolve` | Resolve an acknowledged alert |
-| `POST` | `/api/v1/demo/generate` | Generate reproducible demo telemetry |
+| `POST` | `/api/v1/demo/generate` | Generate reproducible demo telemetry; API key protected when configured |
 | `GET` | `/health` | Database-backed health check |
 
 ## Production roadmap
 
 - Optional TimescaleDB hypertables for long-running telemetry stores
 - Redis Streams or Kafka ingestion workers
-- Device authentication and per-tenant access control
+- Per-device keys, key rotation, and per-tenant access control
 - Configurable alert rules and escalation policies
 - Prometheus metrics and OpenTelemetry traces
 - Drift detection and scheduled model retraining
@@ -211,6 +228,8 @@ python -m pip install -e ".[dev,postgres]"
 - SQLite remains useful for a local demonstration; PostgreSQL is recommended for concurrent
   ingestion and container deployments.
 - The demo endpoint should be disabled in a public production deployment.
+- Authentication currently uses one shared ingestion key. Read and alert-management endpoints
+  should remain behind a trusted network or an authenticating reverse proxy.
 - Thresholds are global; production equipment normally needs per-series configuration.
 
 ## Contributing

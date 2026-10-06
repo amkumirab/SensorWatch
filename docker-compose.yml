@@ -21,6 +21,7 @@ services:
     environment:
       SENSORWATCH_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sensorwatch}:${POSTGRES_PASSWORD:-sensorwatch-dev}@postgres:5432/${POSTGRES_DB:-sensorwatch}
       SENSORWATCH_DEMO_ENABLED: "true"
+      SENSORWATCH_INGEST_API_KEY: ${SENSORWATCH_INGEST_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
