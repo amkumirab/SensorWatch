@@ -1,4 +1,4 @@
-from sensorwatch.config import get_settings, normalize_database_url
+from sensorwatch.config import Settings, get_settings, normalize_database_url
 
 
 def test_normalize_database_url_selects_psycopg_driver() -> None:
@@ -32,3 +32,15 @@ def test_settings_store_only_an_api_key_digest(monkeypatch) -> None:
     assert raw_key.encode() not in settings.ingest_api_key_digest
     assert not hasattr(settings, "ingest_api_key")
     get_settings.cache_clear()
+
+
+def test_settings_keep_authentication_optional_for_direct_construction() -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        detector_window=20,
+        detector_min_samples=6,
+        detector_threshold=3.5,
+        demo_enabled=False,
+    )
+
+    assert settings.ingest_api_key_digest is None

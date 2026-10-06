@@ -13,7 +13,7 @@ class Settings:
     detector_min_samples: int
     detector_threshold: float
     demo_enabled: bool
-    ingest_api_key_digest: bytes | None
+    ingest_api_key_digest: bytes | None = None
 
 
 def digest_api_key(api_key: str) -> bytes:
