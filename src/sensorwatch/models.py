@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -19,9 +20,7 @@ from sensorwatch.db import Base
 
 class SensorReading(Base):
     __tablename__ = "sensor_readings"
-    __table_args__ = (
-        Index("ix_sensor_metric_recorded", "sensor_id", "metric", "recorded_at"),
-    )
+    __table_args__ = (Index("ix_sensor_metric_recorded", "sensor_id", "metric", "recorded_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     sensor_id: Mapped[str] = mapped_column(String(80), index=True)
@@ -34,17 +33,30 @@ class SensorReading(Base):
     detector_status: Mapped[str] = mapped_column(String(24), default="warming-up")
     baseline_center: Mapped[float | None] = mapped_column(Float, nullable=True)
     baseline_scale: Mapped[float | None] = mapped_column(Float, nullable=True)
+    applied_rule: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
 
+class SensorRule(Base):
+    __tablename__ = "sensor_rules"
+    __table_args__ = (
+        CheckConstraint("lower_bound < upper_bound", name="ck_rules_bounds"),
+        CheckConstraint("detector_threshold > 0", name="ck_rules_threshold"),
+    )
+
+    sensor_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    metric: Mapped[str] = mapped_column(String(80), primary_key=True)
+    lower_bound: Mapped[float | None] = mapped_column(Float, nullable=True)
+    upper_bound: Mapped[float | None] = mapped_column(Float, nullable=True)
+    detector_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
 class Alert(Base):
     __tablename__ = "alerts"
     __table_args__ = (
-        CheckConstraint(
-            "severity IN ('warning', 'critical')", name="ck_alerts_severity"
-        ),
+        CheckConstraint("severity IN ('warning', 'critical')", name="ck_alerts_severity"),
         CheckConstraint(
             "status IN ('open', 'acknowledged', 'resolved')", name="ck_alerts_status"
         ),

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from sensorwatch.config import Settings
 from sensorwatch.detector import RollingMadDetector
-from sensorwatch.models import Alert, SensorReading
+from sensorwatch.models import Alert, SensorReading, SensorRule
 from sensorwatch.schemas import (
     OverviewResponse,
     ReadingCreate,
@@ -26,6 +26,14 @@ class ReadingService:
         )
 
     def add(self, payload: ReadingCreate) -> SensorReading:
+        rule = self.db.get(SensorRule, (payload.sensor_id, payload.metric))
+        detector = self.detector
+        if rule is not None and rule.detector_threshold is not None:
+            detector = RollingMadDetector(
+                window=detector.window,
+                min_samples=detector.min_samples,
+                threshold=rule.detector_threshold,
+            )
         history_statement = (
             select(SensorReading.value)
             .where(
@@ -36,7 +44,11 @@ class ReadingService:
             .limit(self.detector.window)
         )
         history = list(reversed(self.db.scalars(history_statement).all()))
-        detection = self.detector.detect(payload.value, history)
+        detection = detector.detect(payload.value, history)
+        outside_bounds = rule is not None and (
+            (rule.lower_bound is not None and payload.value < rule.lower_bound)
+            or (rule.upper_bound is not None and payload.value > rule.upper_bound)
+        )
 
         row = SensorReading(
             sensor_id=payload.sensor_id,
@@ -45,17 +57,26 @@ class ReadingService:
             unit=payload.unit,
             recorded_at=payload.recorded_at,
             anomaly_score=detection.score,
-            is_anomaly=detection.is_anomaly,
-            detector_status=detection.status,
+            is_anomaly=detection.is_anomaly or outside_bounds,
+            detector_status="anomaly" if outside_bounds else detection.status,
             baseline_center=detection.center,
             baseline_scale=detection.scale,
+            applied_rule=(
+                {
+                    "lower_bound": rule.lower_bound,
+                    "upper_bound": rule.upper_bound,
+                    "detector_threshold": detector.threshold,
+                }
+                if rule is not None
+                else None
+            ),
         )
         self.db.add(row)
         self.db.flush()
-        if detection.is_anomaly:
+        if row.is_anomaly:
             severity = (
                 "critical"
-                if detection.score >= self.detector.threshold * 2
+                if outside_bounds or detection.score >= detector.threshold * 2
                 else "warning"
             )
             self.db.add(
@@ -64,7 +85,8 @@ class ReadingService:
                     severity=severity,
                     status="open",
                     message=(
-                        f"{severity.title()} {payload.metric} anomaly detected "
+                        f"{severity.title()} {payload.metric} "
+                        f"{'limit breach' if outside_bounds else 'anomaly detected'} "
                         f"on {payload.sensor_id}"
                     ),
                 )
@@ -169,9 +191,7 @@ def overview(db: Session) -> OverviewResponse:
     active_series = (
         db.scalar(
             select(func.count()).select_from(
-                select(SensorReading.sensor_id, SensorReading.metric)
-                .distinct()
-                .subquery()
+                select(SensorReading.sensor_id, SensorReading.metric).distinct().subquery()
             )
         )
         or 0

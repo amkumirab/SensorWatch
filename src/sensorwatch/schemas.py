@@ -2,7 +2,30 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+class RuleSettings(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid", allow_inf_nan=False)
+
+    lower_bound: float | None = None
+    upper_bound: float | None = None
+    detector_threshold: float | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def ordered_bounds(self) -> RuleSettings:
+        if (
+            self.lower_bound is not None
+            and self.upper_bound is not None
+            and self.lower_bound >= self.upper_bound
+        ):
+            raise ValueError("lower_bound must be less than upper_bound")
+        return self
+
+
+class RuleResponse(RuleSettings):
+    sensor_id: str
+    metric: str
 
 
 class ReadingCreate(BaseModel):
@@ -38,6 +61,7 @@ class ReadingResponse(BaseModel):
     detector_status: str
     baseline_center: float | None
     baseline_scale: float | None
+    applied_rule: RuleSettings | None = None
 
 
 class BatchResponse(BaseModel):

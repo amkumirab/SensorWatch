@@ -1,12 +1,11 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
+from alembic import command
 from sqlalchemy import inspect, text
-from sqlalchemy.orm import Session
 
 from sensorwatch.db import make_engine
-from sensorwatch.migration import upgrade_database
-from sensorwatch.models import SensorReading
+from sensorwatch.migration import alembic_config, upgrade_database
 
 
 def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
@@ -17,7 +16,7 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
 
     engine = make_engine(database_url)
     inspector = inspect(engine)
-    assert {"alembic_version", "sensor_readings", "alerts"}.issubset(
+    assert {"alembic_version", "sensor_readings", "alerts", "sensor_rules"}.issubset(
         inspector.get_table_names()
     )
     assert {column["name"] for column in inspector.get_columns("sensor_readings")} == {
@@ -32,6 +31,7 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
         "detector_status",
         "baseline_center",
         "baseline_scale",
+        "applied_rule",
         "created_at",
     }
     assert {column["name"] for column in inspector.get_columns("alerts")} == {
@@ -50,25 +50,24 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "20260924_0002"
+    assert revision == "20261016_0003"
     engine.dispose()
 
 
 def test_migration_stamps_legacy_schema_without_losing_data(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'legacy.db'}"
+    command.upgrade(alembic_config(database_url), "20260913_0001")
     engine = make_engine(database_url)
-    SensorReading.__table__.create(bind=engine)
-    with Session(engine) as session:
-        session.add(
-            SensorReading(
-                sensor_id="legacy-boiler",
-                metric="temperature",
-                value=72.0,
-                unit="C",
-                recorded_at=datetime.now(timezone.utc),
-            )
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE alembic_version"))
+        connection.execute(
+            text(
+                "INSERT INTO sensor_readings (sensor_id, metric, value, unit, recorded_at, "
+                "anomaly_score, is_anomaly, detector_status, created_at) VALUES "
+                "('legacy-boiler', 'temperature', 72, 'C', :now, 0, false, 'warming-up', :now)"
+            ),
+            {"now": datetime.now(timezone.utc).isoformat()},
         )
-        session.commit()
     engine.dispose()
 
     upgrade_database(database_url)
@@ -81,6 +80,19 @@ def test_migration_stamps_legacy_schema_without_losing_data(tmp_path: Path) -> N
         reading_count = connection.execute(
             text("SELECT COUNT(*) FROM sensor_readings")
         ).scalar_one()
-    assert revision == "20260924_0002"
+    assert revision == "20261016_0003"
     assert reading_count == 1
     migrated_engine.dispose()
+
+
+def test_rule_migration_can_be_rolled_back_and_reapplied(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'rollback.db'}"
+    upgrade_database(url)
+    command.downgrade(alembic_config(url), "20260924_0002")
+    engine = make_engine(url)
+    assert "sensor_rules" not in inspect(engine).get_table_names()
+    assert "applied_rule" not in {
+        column["name"] for column in inspect(engine).get_columns("sensor_readings")
+    }
+    engine.dispose()
+    upgrade_database(url)
