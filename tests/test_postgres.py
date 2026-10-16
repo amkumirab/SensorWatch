@@ -3,12 +3,14 @@ from __future__ import annotations
 import os
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
+from sensorwatch.api import app
 from sensorwatch.config import Settings, normalize_database_url
-from sensorwatch.db import make_engine
-from sensorwatch.models import Alert, SensorReading
+from sensorwatch.db import get_db, make_engine
+from sensorwatch.models import Alert, SensorReading, SensorRule
 from sensorwatch.schemas import ReadingCreate
 from sensorwatch.service import ReadingService
 
@@ -31,7 +33,7 @@ def test_postgres_migration_and_reading_round_trip() -> None:
     )
 
     assert engine.dialect.name == "postgresql"
-    assert {"alembic_version", "sensor_readings", "alerts"}.issubset(
+    assert {"alembic_version", "sensor_readings", "alerts", "sensor_rules"}.issubset(
         inspect(engine).get_table_names()
     )
 
@@ -44,19 +46,57 @@ def test_postgres_migration_and_reading_round_trip() -> None:
                 )
             )
         anomaly = service.add(
-            ReadingCreate(
-                sensor_id="ci-boiler", metric="temperature", value=32.0, unit="C"
-            )
+            ReadingCreate(sensor_id="ci-boiler", metric="temperature", value=32.0, unit="C")
         )
         assert anomaly.is_anomaly is True
-        assert session.scalar(
-            select(SensorReading).where(SensorReading.id == anomaly.id)
-        ) is anomaly
+        assert (
+            session.scalar(select(SensorReading).where(SensorReading.id == anomaly.id))
+            is anomaly
+        )
         alert = session.scalar(select(Alert).where(Alert.reading_id == anomaly.id))
         assert alert is not None
         assert alert.status == "open"
         assert alert.severity == "critical"
+        session.add(SensorRule(sensor_id="ci-limits", metric="pressure", upper_bound=10))
+        session.flush()
+        breach = service.add(ReadingCreate(sensor_id="ci-limits", metric="pressure", value=11))
+        assert breach.is_anomaly is True
+        assert breach.applied_rule["upper_bound"] == 10
         assert session.execute(text("SELECT 1")).scalar_one() == 1
         session.rollback()
 
+    engine.dispose()
+
+
+def test_postgres_rule_api_upsert_and_ingestion() -> None:
+    assert POSTGRES_URL is not None
+    engine = make_engine(normalize_database_url(POSTGRES_URL))
+    with engine.connect() as connection:
+        transaction = connection.begin()
+        with Session(bind=connection, join_transaction_mode="create_savepoint") as session:
+
+            def override_db():
+                yield session
+
+            app.dependency_overrides[get_db] = override_db
+            try:
+                with TestClient(app) as client:
+                    path = "/api/v1/rules/ci-api/pressure"
+                    assert client.put(path, json={"upper_bound": 10}).status_code == 200
+                    assert client.put(path, json={"upper_bound": 20}).status_code == 200
+                    response = client.post(
+                        "/api/v1/readings",
+                        json={
+                            "sensor_id": "ci-api",
+                            "metric": "pressure",
+                            "value": 21,
+                        },
+                    )
+                    assert response.status_code == 201
+                    assert response.json()["is_anomaly"] is True
+                    assert response.json()["applied_rule"]["upper_bound"] == 20
+                    assert client.delete(path).status_code == 204
+            finally:
+                app.dependency_overrides.clear()
+        transaction.rollback()
     engine.dispose()

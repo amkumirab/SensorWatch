@@ -3,16 +3,20 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Response
+from fastapi import Path as ApiPath
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
+from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from sensorwatch.auth import require_ingest_api_key
 from sensorwatch.config import get_settings
 from sensorwatch.db import get_db
 from sensorwatch.demo import generate_demo_readings
+from sensorwatch.models import SensorRule
 from sensorwatch.schemas import (
     AlertResponse,
     AlertTransitionRequest,
@@ -22,6 +26,8 @@ from sensorwatch.schemas import (
     ReadingBatchCreate,
     ReadingCreate,
     ReadingResponse,
+    RuleResponse,
+    RuleSettings,
     SensorSeriesSummary,
 )
 from sensorwatch.service import (
@@ -41,12 +47,74 @@ settings = get_settings()
 
 app = FastAPI(
     title="SensorWatch API",
-    version="0.3.0",
+    version="0.4.0",
     description="Streaming sensor ingestion and robust rolling anomaly detection.",
 )
 app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
 
 Database = Annotated[Session, Depends(get_db)]
+SeriesIdentifier = Annotated[
+    str, ApiPath(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_.:-]+$")
+]
+
+
+@app.get("/api/v1/rules", response_model=list[RuleResponse])
+def get_rules(
+    db: Database,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[SensorRule]:
+    return list(
+        db.scalars(
+            select(SensorRule)
+            .order_by(SensorRule.sensor_id, SensorRule.metric)
+            .offset(offset)
+            .limit(limit)
+        ).all()
+    )
+
+
+@app.get("/api/v1/rules/{sensor_id}/{metric}", response_model=RuleResponse)
+def get_rule(sensor_id: SeriesIdentifier, metric: SeriesIdentifier, db: Database) -> SensorRule:
+    rule = db.get(SensorRule, (sensor_id, metric))
+    if rule is None:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return rule
+
+
+@app.put(
+    "/api/v1/rules/{sensor_id}/{metric}",
+    response_model=RuleResponse,
+    dependencies=[Depends(require_ingest_api_key)],
+)
+def put_rule(
+    sensor_id: SeriesIdentifier, metric: SeriesIdentifier, payload: RuleSettings, db: Database
+) -> SensorRule:
+    insert = sqlite_insert if db.get_bind().dialect.name == "sqlite" else postgres_insert
+    statement = insert(SensorRule).values(
+        sensor_id=sensor_id, metric=metric, **payload.model_dump()
+    )
+    db.execute(
+        statement.on_conflict_do_update(
+            index_elements=["sensor_id", "metric"], set_=payload.model_dump()
+        )
+    )
+    db.commit()
+    return get_rule(sensor_id, metric, db)
+
+
+@app.delete(
+    "/api/v1/rules/{sensor_id}/{metric}",
+    status_code=204,
+    dependencies=[Depends(require_ingest_api_key)],
+)
+def delete_rule(
+    sensor_id: SeriesIdentifier, metric: SeriesIdentifier, db: Database
+) -> Response:
+    rule = get_rule(sensor_id, metric, db)
+    db.delete(rule)
+    db.commit()
+    return Response(status_code=204)
 
 
 @app.get("/", include_in_schema=False)
@@ -141,9 +209,7 @@ def get_alerts(
 
 
 @app.post("/api/v1/alerts/{alert_id}/acknowledge", response_model=AlertResponse)
-def acknowledge(
-    alert_id: int, payload: AlertTransitionRequest, db: Database
-) -> AlertResponse:
+def acknowledge(alert_id: int, payload: AlertTransitionRequest, db: Database) -> AlertResponse:
     try:
         alert = acknowledge_alert(db, alert_id, payload.operator)
     except AlertStateError as error:

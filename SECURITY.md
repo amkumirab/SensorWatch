@@ -21,5 +21,5 @@ The default configuration is intended for local demonstration. Before exposing S
 untrusted networks, configure `SENSORWATCH_INGEST_API_KEY`, disable the demo endpoint, put the
 read and alert-management routes behind an authenticating reverse proxy, use TLS, configure
 request limits, move persistence to a production database, and establish monitoring and backup
-policies. The built-in API key protects ingestion but does not yet provide per-device keys,
+policies. The built-in API key protects ingestion and rule mutations but does not yet provide per-device keys,
 rotation, or tenant isolation.

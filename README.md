@@ -23,6 +23,7 @@ baseline center, and baseline scale so the result remains explainable.
 - Robust MAD anomaly scoring with warm-up state
 - PostgreSQL and SQLite persistence managed with Alembic migrations
 - Transactional alert creation with acknowledge and resolve workflows
+- Per-sensor limits and detection sensitivity with historical rule snapshots
 - Summary, fleet, telemetry, and anomaly APIs
 - Responsive dependency-free monitoring dashboard
 - Deterministic three-sensor demo-data generator
@@ -121,6 +122,35 @@ Severity is derived from the anomaly score: readings at least twice the configur
 threshold are `critical`; other anomalies are `warning`. The dashboard shows active alerts and
 lets an operator acknowledge or resolve them without leaving the monitoring view.
 
+## Per-sensor alert rules
+
+Create or replace a rule for a sensor/metric pair:
+
+```bash
+curl -X PUT http://127.0.0.1:8000/api/v1/rules/boiler-01/temperature \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $SENSORWATCH_INGEST_API_KEY" \
+  -d '{"lower_bound": 10, "upper_bound": 80, "detector_threshold": 5}'
+```
+
+All three settings are optional and accept `null`. Omitted settings are cleared by `PUT`;
+this replaces the complete rule. Bounds must be finite, lower must be less than upper,
+and the detector threshold must be finite and positive. A larger threshold reduces sensitivity.
+
+Values strictly below or above a configured bound create a critical alert immediately,
+including during detector warm-up. Values exactly at a bound are allowed, but can still
+trigger the independent MAD detector after warm-up. A custom threshold replaces the global
+MAD threshold only for the matching sensor and metric; otherwise the global value applies.
+
+`GET /api/v1/rules` lists rules with `limit` (default 100, maximum 500) and `offset`.
+Use `GET` or `DELETE /api/v1/rules/{sensor_id}/{metric}` to retrieve or remove one rule.
+Missing rules return `404`. Rule changes and deletion require `X-API-Key` when configured.
+
+Changes affect only future ingestion. Each reading includes an `applied_rule` snapshot with
+the effective settings, so past decisions remain explainable after a rule is edited or deleted.
+Readings without a custom rule, including existing records, return `applied_rule: null`.
+Apply the new schema with `sensorwatch migrate` before restarting an existing installation.
+
 ## Send a reading
 
 Ingestion authentication is disabled by default for local development. To enable it, generate
@@ -181,7 +211,7 @@ Copy `.env.example` or set environment variables before starting the service.
 | `SENSORWATCH_DETECTOR_MIN_SAMPLES` | `12` | Warm-up samples before classification |
 | `SENSORWATCH_DETECTOR_THRESHOLD` | `3.5` | Minimum robust score for an anomaly |
 | `SENSORWATCH_DEMO_ENABLED` | `true` | Enable the demo-data endpoint |
-| `SENSORWATCH_INGEST_API_KEY` | unset | Protect ingestion and demo generation with `X-API-Key` |
+| `SENSORWATCH_INGEST_API_KEY` | unset | Protect ingestion, demo generation, and rule mutations with `X-API-Key` |
 
 ## Development
 
@@ -206,6 +236,10 @@ python -m pip install -e ".[dev,postgres]"
 | `GET` | `/api/v1/summary` | Retrieve operational totals |
 | `GET` | `/api/v1/sensors` | List sensor/metric series |
 | `GET` | `/api/v1/alerts` | Query alerts by state or severity |
+| `GET` | `/api/v1/rules` | List per-series alert rules |
+| `GET` | `/api/v1/rules/{sensor_id}/{metric}` | Retrieve one rule |
+| `PUT` | `/api/v1/rules/{sensor_id}/{metric}` | Create or replace a rule; API key protected when configured |
+| `DELETE` | `/api/v1/rules/{sensor_id}/{metric}` | Remove a rule; API key protected when configured |
 | `POST` | `/api/v1/alerts/{id}/acknowledge` | Acknowledge an open alert |
 | `POST` | `/api/v1/alerts/{id}/resolve` | Resolve an acknowledged alert |
 | `POST` | `/api/v1/demo/generate` | Generate reproducible demo telemetry; API key protected when configured |
@@ -230,7 +264,7 @@ python -m pip install -e ".[dev,postgres]"
 - The demo endpoint should be disabled in a public production deployment.
 - Authentication currently uses one shared ingestion key. Read and alert-management endpoints
   should remain behind a trusted network or an authenticating reverse proxy.
-- Thresholds are global; production equipment normally needs per-series configuration.
+- Rule management is available through the API; the dashboard does not yet include a rule editor.
 
 ## Contributing
 
