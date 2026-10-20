@@ -10,18 +10,28 @@ function showToast(message, isError = false) {
 }
 
 async function request(url, options = {}) {
+  const { allowMissing = false, ...fetchOptions } = options;
+  const apiKey = $("#api-key").value;
   const response = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
+    ...fetchOptions,
+    headers: {
+      "Content-Type": "application/json",
+      ...(fetchOptions.method && apiKey ? { "X-API-Key": apiKey } : {}),
+      ...(fetchOptions.headers || {}),
+    },
   });
+  if (response.status === 204 || (allowMissing && response.status === 404)) return null;
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed (${response.status})`);
+    if (response.status === 401) throw new Error("Enter a valid API key and try again.");
+    const detail = Array.isArray(body.detail)
+      ? body.detail.map((item) => item.msg).join("; ") : body.detail;
+    throw new Error(detail || `Request failed (${response.status})`);
   }
   return response.json();
 }
 
-function seriesKey(sensor) { return `${sensor.sensor_id}::${sensor.metric}`; }
+function seriesKey(sensor) { return JSON.stringify([sensor.sensor_id, sensor.metric]); }
 function number(value, digits = 2) { return Number(value).toLocaleString(undefined, { maximumFractionDigits: digits }); }
 function dateTime(value) { return value ? new Date(value).toLocaleString() : "—"; }
 function escapeHtml(value) {
@@ -56,13 +66,13 @@ function renderSensors() {
 
   select.innerHTML = state.sensors.map((item) => {
     const key = seriesKey(item);
-    return `<option value="${key}" ${key === state.selectedKey ? "selected" : ""}>${escapeHtml(item.sensor_id)} · ${escapeHtml(item.metric)}</option>`;
+    return `<option value="${escapeHtml(key)}" ${key === state.selectedKey ? "selected" : ""}>${escapeHtml(item.sensor_id)} · ${escapeHtml(item.metric)}</option>`;
   }).join("");
 
   list.innerHTML = state.sensors.map((item) => {
     const key = seriesKey(item);
     const alertClass = item.anomaly_count ? "sensor-alert" : "";
-    return `<div class="sensor-row ${key === state.selectedKey ? "active" : ""}" data-key="${key}">
+    return `<div class="sensor-row ${key === state.selectedKey ? "active" : ""}" data-key="${escapeHtml(key)}">
       <div class="sensor-row-top">
         <span class="sensor-name">${escapeHtml(item.sensor_id)}</span>
         <span class="sensor-value">${number(item.last_value)} ${escapeHtml(item.unit)}</span>
@@ -188,7 +198,7 @@ function renderAlerts() {
 
 async function loadSelectedSeries() {
   if (!state.selectedKey) { state.readings = []; drawChart(); return; }
-  const [sensorId, metric] = state.selectedKey.split("::");
+  const [sensorId, metric] = JSON.parse(state.selectedKey);
   state.readings = await request(`/api/v1/readings?sensor_id=${encodeURIComponent(sensorId)}&metric=${encodeURIComponent(metric)}&limit=120`);
   const sensor = state.sensors.find((item) => seriesKey(item) === state.selectedKey);
   $("#chart-title").textContent = sensor ? `${sensor.sensor_id} / ${sensor.metric}` : "Live telemetry";
@@ -198,7 +208,9 @@ async function loadSelectedSeries() {
 async function selectSeries(key) {
   state.selectedKey = key;
   renderSensors();
-  await loadSelectedSeries();
+  ruleEditor.setSeries(state.sensors.find((sensor) => seriesKey(sensor) === state.selectedKey));
+  try { await loadSelectedSeries(); }
+  catch (error) { showToast(error.message, true); }
 }
 
 async function refresh() {
@@ -211,6 +223,7 @@ async function refresh() {
     ]);
     state.summary = summary; state.sensors = sensors; state.alerts = alerts;
     renderSummary(); renderSensors(); renderAnomalies(anomalies); renderAlerts();
+    ruleEditor.setSeries(state.sensors.find((sensor) => seriesKey(sensor) === state.selectedKey));
     await loadSelectedSeries();
     $("#connection").classList.remove("offline");
     $("#connection").lastChild.textContent = " API connected";
@@ -255,6 +268,7 @@ $("#generate-demo").addEventListener("click", async (event) => {
   finally { button.disabled = false; button.textContent = "Generate demo data"; }
 });
 
+const ruleEditor = new RuleEditor(request);
 window.addEventListener("resize", drawChart);
 refresh();
 window.setInterval(refresh, 10000);

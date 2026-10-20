@@ -6,6 +6,7 @@
     <meta name="description" content="SensorWatch anomaly monitoring dashboard" />
     <title>SensorWatch</title>
     <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="/assets/rule-editor.js" defer></script>
     <script src="/assets/app.js" defer></script>
   </head>
   <body>
@@ -93,6 +94,53 @@
             <div class="empty-list">No sensors registered.</div>
           </div>
         </article>
+      </section>
+
+      <section id="rule-editor" class="panel rules-panel" aria-labelledby="rule-heading">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">ALERT CONFIGURATION</p>
+            <h2 id="rule-heading">Sensor alert rule</h2>
+            <p id="rule-series" class="rule-help">Select a sensor series above.</p>
+          </div>
+          <div class="rule-access">
+            <label for="api-key">API key</label>
+            <input id="api-key" type="password" autocomplete="off" maxlength="512"
+              spellcheck="false" aria-describedby="key-help" />
+            <small id="key-help">Optional on local setups. Cleared when this page reloads.</small>
+            <button id="clear-api-key" class="button compact" type="button">Clear key</button>
+          </div>
+        </div>
+        <form id="rule-form">
+          <fieldset id="rule-fields" disabled>
+            <legend class="rule-help">Settings for future readings only</legend>
+            <div class="rule-grid">
+              <div>
+                <label for="rule-lower">Lower bound</label>
+                <input id="rule-lower" type="number" step="any" aria-describedby="bounds-help" />
+              </div>
+              <div>
+                <label for="rule-upper">Upper bound</label>
+                <input id="rule-upper" type="number" step="any" aria-describedby="bounds-help" />
+              </div>
+              <div>
+                <label for="rule-threshold">Detection threshold</label>
+                <input id="rule-threshold" type="number" step="any" min="0"
+                  placeholder="Global default" aria-describedby="threshold-help" />
+              </div>
+            </div>
+            <p id="bounds-help" class="rule-help">Leave a bound blank for no limit. Values outside the range trigger a critical alert, even during warm-up.</p>
+            <p id="threshold-help" class="rule-help">A higher threshold reduces sensitivity. Leave blank to use the global threshold.</p>
+            <div class="rule-actions">
+              <button id="save-rule" class="button primary" type="submit">Save rule</button>
+              <button id="delete-rule" class="button ghost" type="button" disabled>Delete rule</button>
+            </div>
+          </fieldset>
+        </form>
+        <div class="rule-footer">
+          <p id="rule-status" class="rule-help" role="status" aria-live="polite">Select a sensor series to configure its rule.</p>
+          <button id="reload-rule" class="button compact" type="button" disabled>Reload rule</button>
+        </div>
       </section>
 
       <section class="panel alerts-panel">

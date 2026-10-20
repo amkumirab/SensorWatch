@@ -35,6 +35,9 @@ Repository = "https://github.com/amkumirab/SensorWatch.git"
 Issues = "https://github.com/amkumirab/SensorWatch/issues"
 
 [project.optional-dependencies]
+browser = [
+  "playwright>=1.50,<2.0",
+]
 postgres = [
   "psycopg[binary]>=3.2,<4.0",
 ]

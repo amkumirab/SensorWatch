@@ -181,6 +181,22 @@ input {
 
 .explanation { color: var(--muted); font-size: 12px; }
 .alerts-panel { margin-bottom: 14px; }
+.rules-panel { margin-bottom: 14px; }
+.rule-access { display: grid; gap: 8px; max-width: 320px; width: 100%; }
+.rule-access label, .rule-grid label { font-size: 13px; color: var(--muted); }
+.rule-access small { color: var(--muted); font-size: 12px; }
+.rule-access input, .rule-grid input { width: 100%; min-width: 0; }
+.rule-access button { justify-self: start; }
+#rule-fields { border: 0; padding: 0; margin: 20px 0 0; min-width: 0; }
+#rule-fields legend { padding: 0; margin-bottom: 12px; }
+.rule-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.rule-grid > div { display: grid; gap: 8px; }
+.rule-help { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.rule-actions, .rule-footer { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rule-footer { justify-content: space-between; margin-top: 8px; }
+.rule-error { color: var(--red); }
+.button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+:is(button, input, select, a):focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
 .alert-controls { display: flex; align-items: center; gap: 9px; }
 .alert-controls label { color: var(--muted); font-size: 12px; }
 .alert-controls input { width: 150px; }
@@ -216,6 +232,7 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 
 @media (max-width: 640px) {
+  .rule-grid { grid-template-columns: 1fr; }
   .topbar { height: auto; padding: 14px 18px; align-items: flex-start; }
   .topbar-actions { flex-wrap: wrap; justify-content: flex-end; }
   .connection { width: 100%; justify-content: flex-end; margin: 0; }

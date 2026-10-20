@@ -24,6 +24,7 @@ baseline center, and baseline scale so the result remains explainable.
 - PostgreSQL and SQLite persistence managed with Alembic migrations
 - Transactional alert creation with acknowledge and resolve workflows
 - Per-sensor limits and detection sensitivity with historical rule snapshots
+- Dashboard rule editor with validation and temporary API key entry
 - Summary, fleet, telemetry, and anomaly APIs
 - Responsive dependency-free monitoring dashboard
 - Deterministic three-sensor demo-data generator
@@ -124,6 +125,17 @@ lets an operator acknowledge or resolve them without leaving the monitoring view
 
 ## Per-sensor alert rules
 
+In the dashboard, select a sensor series and use **Sensor alert rule** to view, save,
+or delete its settings. Blank bounds mean no limit; a blank detection threshold uses the
+global default. Deletion requires confirmation and restores the global detection settings.
+Automatic dashboard refreshes preserve unsaved edits for the selected series. Switching
+to another series or pressing **Reload rule** discards those edits and loads the saved rule.
+
+For protected installations, enter the ingestion key in the **API key** field. It is used
+for write requests, including demo generation, and is never stored in browser storage or
+URLs. Reloading or leaving the page clears it; **Clear key** removes it immediately.
+Use HTTPS when accessing a remote installation.
+
 Create or replace a rule for a sensor/metric pair:
 
 ```bash
@@ -220,6 +232,17 @@ ruff check .
 pytest --cov=sensorwatch --cov-report=term-missing
 ```
 
+Run the browser tests against a temporary database and isolated Chromium:
+
+```bash
+python -m pip install -e ".[dev,browser]"
+python -m playwright install chromium
+pytest browser_tests
+```
+
+The browser suite checks rule creation, updates, deletion, authentication errors,
+validation, sensor selection, refresh behavior, and responsive layouts.
+
 Install PostgreSQL support for development with:
 
 ```bash
@@ -264,7 +287,8 @@ python -m pip install -e ".[dev,postgres]"
 - The demo endpoint should be disabled in a public production deployment.
 - Authentication currently uses one shared ingestion key. Read and alert-management endpoints
   should remain behind a trusted network or an authenticating reverse proxy.
-- Rule management is available through the API; the dashboard does not yet include a rule editor.
+- The rule editor configures sensor series that already have telemetry; use the API to
+  prepare rules for a sensor before its first reading.
 
 ## Contributing
 
