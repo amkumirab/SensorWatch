@@ -47,6 +47,11 @@ function renderSummary() {
   $("#active-series").textContent = number(summary.active_series, 0);
   $("#anomaly-rate").textContent = `${(summary.anomaly_rate * 100).toFixed(1)}% anomaly rate`;
   $("#last-refresh").textContent = new Date().toLocaleTimeString();
+  const stale = summary.stale_series;
+  $("#stale-series-count").textContent = `${number(stale, 0)} stale streams`;
+  $("#fleet-status-label").textContent = !summary.active_series
+    ? "No streams" : stale ? "Attention needed" : "All streams online";
+  $("#fleet-status").classList.toggle("stale", stale > 0);
 }
 
 function renderSensors() {
@@ -72,6 +77,7 @@ function renderSensors() {
   list.innerHTML = state.sensors.map((item) => {
     const key = seriesKey(item);
     const alertClass = item.anomaly_count ? "sensor-alert" : "";
+    const stale = item.connectivity_status === "stale";
     return `<div class="sensor-row ${key === state.selectedKey ? "active" : ""}" data-key="${escapeHtml(key)}">
       <div class="sensor-row-top">
         <span class="sensor-name">${escapeHtml(item.sensor_id)}</span>
@@ -81,6 +87,11 @@ function renderSensors() {
         <span>${escapeHtml(item.metric)} · ${item.total_readings} samples</span>
         <span class="${alertClass}">${item.anomaly_count} anomalies</span>
       </div>
+      <div class="stream-meta">
+        <span class="stream-status ${stale ? "stale" : "online"}">${stale ? "Stale" : "Online"}</span>
+        <span>Last received ${dateTime(item.last_received_at)}</span>
+      </div>
+      <small class="stream-timeout">Stale after ${number(item.stale_after_seconds, 0)} s without data</small>
     </div>`;
   }).join("");
 

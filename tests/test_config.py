@@ -1,3 +1,5 @@
+import pytest
+
 from sensorwatch.config import Settings, get_settings, normalize_database_url
 
 
@@ -44,3 +46,23 @@ def test_settings_keep_authentication_optional_for_direct_construction() -> None
     )
 
     assert settings.ingest_api_key_digest is None
+
+
+def test_global_stale_timeout_is_configurable(monkeypatch):
+    monkeypatch.setenv("SENSORWATCH_STALE_AFTER_SECONDS", "120")
+    get_settings.cache_clear()
+    try:
+        assert get_settings().stale_after_seconds == 120
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "604801", "NaN"])
+def test_invalid_global_stale_timeout_fails_at_startup(monkeypatch, value):
+    monkeypatch.setenv("SENSORWATCH_STALE_AFTER_SECONDS", value)
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValueError):
+            get_settings()
+    finally:
+        get_settings.cache_clear()

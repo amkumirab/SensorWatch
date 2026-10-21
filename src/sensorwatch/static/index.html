@@ -52,8 +52,8 @@
         </article>
         <article class="kpi-card status-card">
           <span>System status</span>
-          <strong><i></i> Monitoring</strong>
-          <small>Rolling MAD detector online</small>
+          <strong id="fleet-status"><i></i><span id="fleet-status-label">Waiting for data</span></strong>
+          <small id="stale-series-count">0 stale streams</small>
         </article>
       </section>
 
@@ -128,9 +128,15 @@
                 <input id="rule-threshold" type="number" step="any" min="0"
                   placeholder="Global default" aria-describedby="threshold-help" />
               </div>
+              <div>
+                <label for="rule-stale">Stale after (seconds)</label>
+                <input id="rule-stale" type="number" step="1" min="1" max="604800"
+                  placeholder="Global default" aria-describedby="stale-help" />
+              </div>
             </div>
             <p id="bounds-help" class="rule-help">Leave a bound blank for no limit. Values outside the range trigger a critical alert, even during warm-up.</p>
             <p id="threshold-help" class="rule-help">A higher threshold reduces sensitivity. Leave blank to use the global threshold.</p>
+            <p id="stale-help" class="rule-help">Maximum silence before a stream is marked stale (1–604800 seconds). Leave blank for the global timeout. Uses server receipt time.</p>
             <div class="rule-actions">
               <button id="save-rule" class="button primary" type="submit">Save rule</button>
               <button id="delete-rule" class="button ghost" type="button" disabled>Delete rule</button>

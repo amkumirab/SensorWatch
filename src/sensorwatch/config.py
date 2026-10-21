@@ -14,6 +14,11 @@ class Settings:
     detector_threshold: float
     demo_enabled: bool
     ingest_api_key_digest: bytes | None = None
+    stale_after_seconds: int = 300
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.stale_after_seconds <= 604800:
+            raise ValueError("stale_after_seconds must be between 1 and 604800")
 
 
 def digest_api_key(api_key: str) -> bytes:
@@ -38,15 +43,10 @@ def get_settings() -> Settings:
             os.getenv("SENSORWATCH_DATABASE_URL", "sqlite:///./data/sensorwatch.db")
         ),
         detector_window=int(os.getenv("SENSORWATCH_DETECTOR_WINDOW", "40")),
-        detector_min_samples=int(
-            os.getenv("SENSORWATCH_DETECTOR_MIN_SAMPLES", "12")
-        ),
-        detector_threshold=float(
-            os.getenv("SENSORWATCH_DETECTOR_THRESHOLD", "3.5")
-        ),
+        detector_min_samples=int(os.getenv("SENSORWATCH_DETECTOR_MIN_SAMPLES", "12")),
+        detector_threshold=float(os.getenv("SENSORWATCH_DETECTOR_THRESHOLD", "3.5")),
         demo_enabled=os.getenv("SENSORWATCH_DEMO_ENABLED", "true").lower()
         in {"1", "true", "yes", "on"},
-        ingest_api_key_digest=(
-            digest_api_key(ingest_api_key) if ingest_api_key else None
-        ),
+        ingest_api_key_digest=(digest_api_key(ingest_api_key) if ingest_api_key else None),
+        stale_after_seconds=int(os.getenv("SENSORWATCH_STALE_AFTER_SECONDS", "300")),
     )

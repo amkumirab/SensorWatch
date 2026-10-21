@@ -177,6 +177,12 @@ input {
 .sensor-value { font-weight: 750; }
 .sensor-meta { color: var(--muted); font-size: 12px; margin-top: 7px; display: flex; justify-content: space-between; }
 .sensor-alert { color: var(--red); }
+.stream-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.stream-status { padding: 3px 7px; border: 1px solid currentColor; border-radius: 6px; font-weight: 700; }
+.stream-status.online { color: var(--green); }
+.stream-status.stale, .status-card strong.stale { color: var(--amber); }
+.status-card strong.stale i { background: var(--amber); box-shadow: none; }
+.stream-timeout { display: block; color: var(--muted); font-size: 11px; margin-top: 8px; }
 .empty-list { color: var(--muted); padding: 35px 10px; text-align: center; }
 
 .explanation { color: var(--muted); font-size: 12px; }
@@ -189,7 +195,7 @@ input {
 .rule-access button { justify-self: start; }
 #rule-fields { border: 0; padding: 0; margin: 20px 0 0; min-width: 0; }
 #rule-fields legend { padding: 0; margin-bottom: 12px; }
-.rule-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.rule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .rule-grid > div { display: grid; gap: 8px; }
 .rule-help { color: var(--muted); font-size: 13px; line-height: 1.5; }
 .rule-actions, .rule-footer { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

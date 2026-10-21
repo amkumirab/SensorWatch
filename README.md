@@ -25,6 +25,7 @@ baseline center, and baseline scale so the result remains explainable.
 - Transactional alert creation with acknowledge and resolve workflows
 - Per-sensor limits and detection sensitivity with historical rule snapshots
 - Dashboard rule editor with validation and temporary API key entry
+- Server-receipt-based stream connectivity monitoring with per-series timeouts
 - Summary, fleet, telemetry, and anomaly APIs
 - Responsive dependency-free monitoring dashboard
 - Deterministic three-sensor demo-data generator
@@ -145,7 +146,7 @@ curl -X PUT http://127.0.0.1:8000/api/v1/rules/boiler-01/temperature \
   -d '{"lower_bound": 10, "upper_bound": 80, "detector_threshold": 5}'
 ```
 
-All three settings are optional and accept `null`. Omitted settings are cleared by `PUT`;
+All settings are optional and accept `null`. Omitted settings are cleared by `PUT`;
 this replaces the complete rule. Bounds must be finite, lower must be less than upper,
 and the detector threshold must be finite and positive. A larger threshold reduces sensitivity.
 
@@ -158,10 +159,43 @@ MAD threshold only for the matching sensor and metric; otherwise the global valu
 Use `GET` or `DELETE /api/v1/rules/{sensor_id}/{metric}` to retrieve or remove one rule.
 Missing rules return `404`. Rule changes and deletion require `X-API-Key` when configured.
 
-Changes affect only future ingestion. Each reading includes an `applied_rule` snapshot with
-the effective settings, so past decisions remain explainable after a rule is edited or deleted.
+Detection changes affect only future ingestion. Each reading includes an `applied_rule` snapshot
+with the effective detection settings, so past decisions remain explainable after a rule is edited or deleted.
 Readings without a custom rule, including existing records, return `applied_rule: null`.
 Apply the new schema with `sensorwatch migrate` before restarting an existing installation.
+
+## Stream connectivity
+
+The fleet shows **Online** or **Stale** for each sensor/metric pair, its last server receipt
+time, and the effective silence timeout. The system-status card counts stale streams.
+The global timeout is 300 seconds; set `SENSORWATCH_STALE_AFTER_SECONDS` to change it.
+In the rule editor, **Stale after (seconds)** overrides that timeout for the selected pair:
+
+```json
+{"stale_after_seconds": 60}
+```
+
+Send this setting with `PUT /api/v1/rules/{sensor_id}/{metric}` alongside any detection
+settings you want to retain. It must be a whole number from 1 to 604800 (seven days).
+`null`, omission, or deleting the rule restores the global timeout. Timeout changes apply
+to the current stream status immediately; they do not change historical anomaly snapshots.
+
+`GET /api/v1/sensors` includes `last_received_at`, `connectivity_status`, and the effective
+`stale_after_seconds`. `GET /api/v1/summary` includes `stale_series`; the existing
+`active_series` still counts all known series, including stale ones.
+
+A stream becomes stale only when the elapsed time is **greater than** its timeout; at the
+exact boundary it is still online. Receipt time comes from the server's `created_at`,
+not the device's `recorded_at`. New arrivals restore online status even when they contain
+historical samples. Only series with at least one received reading are monitored.
+Server clocks should be synchronized; negative elapsed time after a clock adjustment is
+treated as zero.
+
+Status is computed when queried and appears on the dashboard's next 10-second refresh.
+This feature does not create persistent alert records or send background notifications.
+For a stale stream, check gateway connectivity and recent ingestion errors first, then verify
+that its timeout matches the expected sampling interval. Run `sensorwatch migrate` before
+starting this version against an existing database.
 
 ## Send a reading
 
@@ -224,6 +258,7 @@ Copy `.env.example` or set environment variables before starting the service.
 | `SENSORWATCH_DETECTOR_THRESHOLD` | `3.5` | Minimum robust score for an anomaly |
 | `SENSORWATCH_DEMO_ENABLED` | `true` | Enable the demo-data endpoint |
 | `SENSORWATCH_INGEST_API_KEY` | unset | Protect ingestion, demo generation, and rule mutations with `X-API-Key` |
+| `SENSORWATCH_STALE_AFTER_SECONDS` | `300` | Global stream silence timeout, from 1 to 604800 seconds |
 
 ## Development
 
@@ -241,7 +276,7 @@ pytest browser_tests
 ```
 
 The browser suite checks rule creation, updates, deletion, authentication errors,
-validation, sensor selection, refresh behavior, and responsive layouts.
+validation, sensor selection, refresh behavior, connectivity recovery, and responsive layouts.
 
 Install PostgreSQL support for development with:
 

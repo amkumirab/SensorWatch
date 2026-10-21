@@ -7,6 +7,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session, joinedload
 
 from sensorwatch.config import Settings
+from sensorwatch.connectivity import stream_health
 from sensorwatch.detector import RollingMadDetector
 from sensorwatch.models import Alert, SensorReading, SensorRule
 from sensorwatch.schemas import (
@@ -203,6 +204,9 @@ def overview(db: Session) -> OverviewResponse:
         anomaly_rate=round(anomalies / total, 4) if total else 0.0,
         active_series=active_series,
         latest_recorded_at=latest,
+        stale_series=sum(
+            item.connectivity_status == "stale" for item in stream_health(db).values()
+        ),
     )
 
 
@@ -221,6 +225,7 @@ def series_summaries(db: Session) -> list[SensorSeriesSummary]:
     for row in rows:
         grouped[(row.sensor_id, row.metric)].append(row)
 
+    health = stream_health(db)
     summaries = []
     for (sensor_id, metric), readings in grouped.items():
         latest = readings[0]
@@ -233,6 +238,7 @@ def series_summaries(db: Session) -> list[SensorSeriesSummary]:
                 anomaly_count=sum(item.is_anomaly for item in readings),
                 last_value=latest.value,
                 last_recorded_at=latest.recorded_at,
+                **health[(sensor_id, metric)].model_dump(),
             )
         )
     return summaries

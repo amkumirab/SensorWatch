@@ -5,11 +5,15 @@ import socket
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
 import pytest
 from playwright.sync_api import expect, sync_playwright
+from sqlalchemy import create_engine, update
+
+from sensorwatch.models import SensorReading
 
 
 @pytest.fixture
@@ -196,3 +200,36 @@ def test_delete_cancellation_and_clear_key(dashboard):
     expect(page.get_by_label("API key", exact=True)).to_be_empty()
     page.get_by_role("button", name="Save rule").click()
     expect(page.locator("#rule-status")).to_contain_text("API key")
+
+
+def test_stream_status_timeout_and_recovery(dashboard, tmp_path):
+    page, api, url = dashboard
+    seed(api)
+    page.clock.install()
+    page.goto(url)
+    expect(page.locator(".stream-status")).to_have_text("Online")
+    page.get_by_label("API key", exact=True).fill("browser-test-key")
+    page.get_by_label("Stale after (seconds)").fill("60")
+    page.get_by_role("button", name="Save rule").click()
+    expect(page.locator("#rule-status")).to_have_text("Rule saved.")
+    assert api.get("/api/v1/rules/boiler-01/temperature").json()["stale_after_seconds"] == 60
+    engine = create_engine(f"sqlite:///{tmp_path / 'browser.db'}")
+    with engine.begin() as connection:
+        connection.execute(
+            update(SensorReading).values(
+                created_at=datetime.now(timezone.utc) - timedelta(seconds=61)
+            )
+        )
+    engine.dispose()
+    with page.expect_response("**/api/v1/sensors"):
+        page.clock.fast_forward(10000)
+    expect(page.locator(".stream-status")).to_have_text("Stale")
+    expect(page.locator("#stale-series-count")).to_have_text("1 stale streams")
+    expect(page.locator(".stream-meta")).to_contain_text("Last received")
+    seed(api)
+    with page.expect_response("**/api/v1/sensors"):
+        page.clock.fast_forward(10000)
+    expect(page.locator(".stream-status")).to_have_text("Online")
+    expect(page.locator("#stale-series-count")).to_have_text("0 stale streams")
+    page.reload()
+    expect(page.get_by_label("Stale after (seconds)")).to_have_value("60")

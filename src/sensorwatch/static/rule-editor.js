@@ -9,7 +9,7 @@ class RuleEditor {
     this.status = document.querySelector("#rule-status");
     this.remove = document.querySelector("#delete-rule");
     this.reload = document.querySelector("#reload-rule");
-    this.inputs = ["lower", "upper", "threshold"].map(
+    this.inputs = ["lower", "upper", "threshold", "stale"].map(
       (name) => document.querySelector(`#rule-${name}`)
     );
     document.querySelector("#rule-form").addEventListener("submit", (event) => {
@@ -45,8 +45,10 @@ class RuleEditor {
 
   populate(rule) {
     this.hasRule = rule !== null;
+    const values = [rule?.lower_bound, rule?.upper_bound, rule?.detector_threshold,
+      rule?.stale_after_seconds];
     this.inputs.forEach((input, index) => {
-      input.value = rule?.[["lower_bound", "upper_bound", "detector_threshold"][index]] ?? "";
+      input.value = values[index] ?? "";
     });
   }
 
@@ -89,7 +91,7 @@ class RuleEditor {
   save() {
     if (this.busy || !this.path) return;
     const values = this.inputs.map((input) => input.value === "" ? null : input.valueAsNumber);
-    const [lower, upper, threshold] = values;
+    const [lower, upper, threshold, stale] = values;
     if (values.some((value) => value !== null && !Number.isFinite(value))) {
       this.message("Enter finite numbers or leave the fields blank.", true);
       return;
@@ -104,7 +106,13 @@ class RuleEditor {
       this.inputs[2].focus();
       return;
     }
-    this.mutate("PUT", { lower_bound: lower, upper_bound: upper, detector_threshold: threshold });
+    if (stale !== null && (!Number.isInteger(stale) || stale < 1 || stale > 604800)) {
+      this.message("Stale timeout must be a whole number between 1 and 604800 seconds.", true);
+      this.inputs[3].focus();
+      return;
+    }
+    this.mutate("PUT", { lower_bound: lower, upper_bound: upper,
+      detector_threshold: threshold, stale_after_seconds: stale });
   }
 
   async mutate(method, payload) {

@@ -20,7 +20,10 @@ from sensorwatch.db import Base
 
 class SensorReading(Base):
     __tablename__ = "sensor_readings"
-    __table_args__ = (Index("ix_sensor_metric_recorded", "sensor_id", "metric", "recorded_at"),)
+    __table_args__ = (
+        Index("ix_sensor_metric_recorded", "sensor_id", "metric", "recorded_at"),
+        Index("ix_sensor_metric_received", "sensor_id", "metric", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     sensor_id: Mapped[str] = mapped_column(String(80), index=True)
@@ -44,6 +47,9 @@ class SensorRule(Base):
     __table_args__ = (
         CheckConstraint("lower_bound < upper_bound", name="ck_rules_bounds"),
         CheckConstraint("detector_threshold > 0", name="ck_rules_threshold"),
+        CheckConstraint(
+            "stale_after_seconds BETWEEN 1 AND 604800", name="ck_rules_stale_after"
+        ),
     )
 
     sensor_id: Mapped[str] = mapped_column(String(80), primary_key=True)
@@ -51,6 +57,7 @@ class SensorRule(Base):
     lower_bound: Mapped[float | None] = mapped_column(Float, nullable=True)
     upper_bound: Mapped[float | None] = mapped_column(Float, nullable=True)
     detector_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stale_after_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Alert(Base):

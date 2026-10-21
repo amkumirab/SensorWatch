@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-class RuleSettings(BaseModel):
+class DetectionSettings(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra="forbid", allow_inf_nan=False)
 
     lower_bound: float | None = None
@@ -13,7 +14,7 @@ class RuleSettings(BaseModel):
     detector_threshold: float | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
-    def ordered_bounds(self) -> RuleSettings:
+    def ordered_bounds(self) -> DetectionSettings:
         if (
             self.lower_bound is not None
             and self.upper_bound is not None
@@ -21,6 +22,10 @@ class RuleSettings(BaseModel):
         ):
             raise ValueError("lower_bound must be less than upper_bound")
         return self
+
+
+class RuleSettings(DetectionSettings):
+    stale_after_seconds: int | None = Field(default=None, ge=1, le=604800, strict=True)
 
 
 class RuleResponse(RuleSettings):
@@ -61,7 +66,7 @@ class ReadingResponse(BaseModel):
     detector_status: str
     baseline_center: float | None
     baseline_scale: float | None
-    applied_rule: RuleSettings | None = None
+    applied_rule: DetectionSettings | None = None
 
 
 class BatchResponse(BaseModel):
@@ -102,7 +107,13 @@ class AlertResponse(BaseModel):
     reading: ReadingResponse
 
 
-class SensorSeriesSummary(BaseModel):
+class SeriesConnectivity(BaseModel):
+    last_received_at: datetime
+    connectivity_status: Literal["online", "stale"]
+    stale_after_seconds: int
+
+
+class SensorSeriesSummary(SeriesConnectivity):
     sensor_id: str
     metric: str
     unit: str
@@ -118,6 +129,7 @@ class OverviewResponse(BaseModel):
     anomaly_rate: float
     active_series: int
     latest_recorded_at: datetime | None
+    stale_series: int = 0
 
 
 class DemoGenerateRequest(BaseModel):

@@ -50,7 +50,7 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "20261016_0003"
+    assert revision == "20261021_0004"
     engine.dispose()
 
 
@@ -80,7 +80,7 @@ def test_migration_stamps_legacy_schema_without_losing_data(tmp_path: Path) -> N
         reading_count = connection.execute(
             text("SELECT COUNT(*) FROM sensor_readings")
         ).scalar_one()
-    assert revision == "20261016_0003"
+    assert revision == "20261021_0004"
     assert reading_count == 1
     migrated_engine.dispose()
 
@@ -94,5 +94,34 @@ def test_rule_migration_can_be_rolled_back_and_reapplied(tmp_path: Path) -> None
     assert "applied_rule" not in {
         column["name"] for column in inspect(engine).get_columns("sensor_readings")
     }
+    engine.dispose()
+    upgrade_database(url)
+
+
+def test_stream_timeout_migration_preserves_rules(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'timeout.db'}"
+    command.upgrade(alembic_config(url), "20261016_0003")
+    engine = make_engine(url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO sensor_rules (sensor_id, metric, upper_bound) "
+                "VALUES ('pump', 'pressure', 80)"
+            )
+        )
+    engine.dispose()
+    upgrade_database(url)
+    engine = make_engine(url)
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT upper_bound, stale_after_seconds FROM sensor_rules")
+        ).one() == (80, None)
+    engine.dispose()
+    command.downgrade(alembic_config(url), "20261016_0003")
+    engine = make_engine(url)
+    with engine.connect() as connection:
+        assert (
+            connection.execute(text("SELECT upper_bound FROM sensor_rules")).scalar_one() == 80
+        )
     engine.dispose()
     upgrade_database(url)

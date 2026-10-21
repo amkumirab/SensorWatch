@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from sensorwatch.api import app
 from sensorwatch.config import Settings, normalize_database_url
+from sensorwatch.connectivity import stream_health
 from sensorwatch.db import get_db, make_engine
 from sensorwatch.models import Alert, SensorReading, SensorRule
 from sensorwatch.schemas import ReadingCreate
@@ -62,6 +63,8 @@ def test_postgres_migration_and_reading_round_trip() -> None:
         breach = service.add(ReadingCreate(sensor_id="ci-limits", metric="pressure", value=11))
         assert breach.is_anomaly is True
         assert breach.applied_rule["upper_bound"] == 10
+        health = stream_health(session)
+        assert health[("ci-limits", "pressure")].connectivity_status == "online"
         assert session.execute(text("SELECT 1")).scalar_one() == 1
         session.rollback()
 
@@ -82,8 +85,18 @@ def test_postgres_rule_api_upsert_and_ingestion() -> None:
             try:
                 with TestClient(app) as client:
                     path = "/api/v1/rules/ci-api/pressure"
-                    assert client.put(path, json={"upper_bound": 10}).status_code == 200
-                    assert client.put(path, json={"upper_bound": 20}).status_code == 200
+                    assert (
+                        client.put(
+                            path, json={"upper_bound": 10, "stale_after_seconds": 60}
+                        ).status_code
+                        == 200
+                    )
+                    assert (
+                        client.put(
+                            path, json={"upper_bound": 20, "stale_after_seconds": 120}
+                        ).status_code
+                        == 200
+                    )
                     response = client.post(
                         "/api/v1/readings",
                         json={
@@ -95,6 +108,9 @@ def test_postgres_rule_api_upsert_and_ingestion() -> None:
                     assert response.status_code == 201
                     assert response.json()["is_anomaly"] is True
                     assert response.json()["applied_rule"]["upper_bound"] == 20
+                    health = client.get("/api/v1/sensors").json()
+                    assert health[0]["stale_after_seconds"] == 120
+                    assert health[0]["connectivity_status"] == "online"
                     assert client.delete(path).status_code == 204
             finally:
                 app.dependency_overrides.clear()
