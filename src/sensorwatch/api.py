@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from fastapi import Path as ApiPath
@@ -16,11 +17,13 @@ from sensorwatch.auth import require_ingest_api_key
 from sensorwatch.config import get_settings
 from sensorwatch.db import get_db
 from sensorwatch.demo import generate_demo_readings
+from sensorwatch.incidents import list_incidents
 from sensorwatch.models import SensorRule
 from sensorwatch.schemas import (
     AlertResponse,
     AlertTransitionRequest,
     BatchResponse,
+    ConnectivityIncidentResponse,
     DemoGenerateRequest,
     OverviewResponse,
     ReadingBatchCreate,
@@ -56,6 +59,39 @@ Database = Annotated[Session, Depends(get_db)]
 SeriesIdentifier = Annotated[
     str, ApiPath(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_.:-]+$")
 ]
+
+
+@app.get("/api/v1/connectivity/incidents", response_model=list[ConnectivityIncidentResponse])
+def get_connectivity_incidents(
+    db: Database,
+    sensor_id: Annotated[
+        str | None, Query(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_.:-]+$")
+    ] = None,
+    metric: Annotated[
+        str | None, Query(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_.:-]+$")
+    ] = None,
+    status: Literal["open", "recovered"] | None = None,
+    started_from: datetime | None = None,
+    started_to: datetime | None = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[ConnectivityIncidentResponse]:
+    if any(
+        value is not None and value.utcoffset() is None for value in (started_from, started_to)
+    ):
+        raise HTTPException(status_code=422, detail="Time filters must include a timezone")
+    if started_from is not None and started_to is not None and started_from > started_to:
+        raise HTTPException(status_code=422, detail="Start time must not be after end time")
+    return list_incidents(
+        db,
+        sensor_id=sensor_id,
+        metric=metric,
+        status=status,
+        started_from=started_from,
+        started_to=started_to,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @app.get("/api/v1/rules", response_model=list[RuleResponse])

@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import inspect, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy import delete, inspect, select, text
+from sqlalchemy.orm import Session, sessionmaker
 
 from sensorwatch.api import app
 from sensorwatch.config import Settings, normalize_database_url
 from sensorwatch.connectivity import stream_health
 from sensorwatch.db import get_db, make_engine
-from sensorwatch.models import Alert, SensorReading, SensorRule
+from sensorwatch.incidents import monitor_once
+from sensorwatch.models import Alert, ConnectivityIncident, SensorReading, SensorRule
 from sensorwatch.schemas import ReadingCreate
 from sensorwatch.service import ReadingService
 
@@ -69,6 +72,54 @@ def test_postgres_migration_and_reading_round_trip() -> None:
         session.rollback()
 
     engine.dispose()
+
+
+def test_postgres_monitor_serializes_and_persists_recovery():
+    assert POSTGRES_URL is not None
+    engine = make_engine(normalize_database_url(POSTGRES_URL))
+    sessions = sessionmaker(bind=engine)
+    now = datetime.now(timezone.utc)
+    sensor = "ci-connectivity-monitor"
+    try:
+        with sessions.begin() as db:
+            db.add(
+                SensorReading(
+                    sensor_id=sensor,
+                    metric="pressure",
+                    value=2,
+                    unit="bar",
+                    recorded_at=now,
+                    created_at=now - timedelta(seconds=400),
+                )
+            )
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            results = list(workers.map(lambda _: monitor_once(sessions, now=now), range(2)))
+        assert sum(item["opened"] for item in results) == 1
+        with sessions.begin() as db:
+            db.add(
+                SensorReading(
+                    sensor_id=sensor,
+                    metric="pressure",
+                    value=2,
+                    unit="bar",
+                    recorded_at=now,
+                    created_at=now + timedelta(seconds=1),
+                )
+            )
+        assert monitor_once(sessions, now=now + timedelta(seconds=2))["recovered"] == 1
+        with sessions() as db:
+            rows = db.scalars(
+                select(ConnectivityIncident).where(ConnectivityIncident.sensor_id == sensor)
+            ).all()
+            assert len(rows) == 1
+            assert rows[0].recovered_at == now + timedelta(seconds=1)
+    finally:
+        with sessions.begin() as db:
+            db.execute(
+                delete(ConnectivityIncident).where(ConnectivityIncident.sensor_id == sensor)
+            )
+            db.execute(delete(SensorReading).where(SensorReading.sensor_id == sensor))
+        engine.dispose()
 
 
 def test_postgres_rule_api_upsert_and_ingestion() -> None:

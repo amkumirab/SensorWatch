@@ -113,6 +113,20 @@ class SeriesConnectivity(BaseModel):
     stale_after_seconds: int
 
 
+class ConnectivityIncidentResponse(BaseModel):
+    id: int
+    sensor_id: str
+    metric: str
+    started_at: datetime
+    detected_at: datetime
+    last_received_at: datetime
+    stale_after_seconds: int
+    recovered_at: datetime | None
+    recovery_reason: Literal["data_received", "timeout_changed"] | None
+    status: Literal["open", "recovered"]
+    duration_seconds: float
+
+
 class SensorSeriesSummary(SeriesConnectivity):
     sensor_id: str
     metric: str

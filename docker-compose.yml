@@ -26,6 +26,22 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  monitor:
+    build: .
+    command: ["sensorwatch", "monitor", "--interval", "${SENSORWATCH_MONITOR_INTERVAL:-15}"]
+    environment:
+      SENSORWATCH_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-sensorwatch}:${POSTGRES_PASSWORD:-sensorwatch-dev}@postgres:5432/${POSTGRES_DB:-sensorwatch}
+      SENSORWATCH_STALE_AFTER_SECONDS: ${SENSORWATCH_STALE_AFTER_SECONDS:-300}
+    depends_on:
+      sensorwatch:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

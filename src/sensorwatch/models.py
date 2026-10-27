@@ -12,6 +12,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,6 +59,44 @@ class SensorRule(Base):
     upper_bound: Mapped[float | None] = mapped_column(Float, nullable=True)
     detector_threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
     stale_after_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class ConnectivityIncident(Base):
+    __tablename__ = "connectivity_incidents"
+    __table_args__ = (
+        CheckConstraint("stale_after_seconds > 0", name="ck_incident_timeout"),
+        CheckConstraint(
+            "recovered_at IS NULL OR recovered_at >= started_at",
+            name="ck_incident_recovery_time",
+        ),
+        CheckConstraint(
+            "recovery_reason IS NULL OR recovery_reason IN "
+            "('data_received', 'timeout_changed')",
+            name="ck_incident_reason",
+        ),
+        Index("ix_incident_series_started", "sensor_id", "metric", "started_at"),
+        Index("ix_incident_started", "started_at"),
+        Index(
+            "uq_incident_open_series",
+            "sensor_id",
+            "metric",
+            unique=True,
+            sqlite_where=text("recovered_at IS NULL"),
+            postgresql_where=text("recovered_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sensor_id: Mapped[str] = mapped_column(String(80))
+    metric: Mapped[str] = mapped_column(String(80))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    stale_after_seconds: Mapped[int] = mapped_column(Integer)
+    recovered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    recovery_reason: Mapped[str | None] = mapped_column(String(24), nullable=True)
 
 
 class Alert(Base):

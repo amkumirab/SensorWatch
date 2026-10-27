@@ -14,8 +14,10 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def stream_health(db: Session) -> dict[tuple[str, str], SeriesConnectivity]:
-    now = utc_now()
+def stream_health(
+    db: Session, *, now: datetime | None = None
+) -> dict[tuple[str, str], SeriesConnectivity]:
+    now = now if now is not None else utc_now()
     default_timeout = get_settings().stale_after_seconds
     statement = (
         select(

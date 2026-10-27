@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
 from alembic import command
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import IntegrityError
 
 from sensorwatch.db import make_engine
 from sensorwatch.migration import alembic_config, upgrade_database
@@ -50,7 +52,7 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "20261021_0004"
+    assert revision == "20261027_0005"
     engine.dispose()
 
 
@@ -80,7 +82,7 @@ def test_migration_stamps_legacy_schema_without_losing_data(tmp_path: Path) -> N
         reading_count = connection.execute(
             text("SELECT COUNT(*) FROM sensor_readings")
         ).scalar_one()
-    assert revision == "20261021_0004"
+    assert revision == "20261027_0005"
     assert reading_count == 1
     migrated_engine.dispose()
 
@@ -123,5 +125,26 @@ def test_stream_timeout_migration_preserves_rules(tmp_path: Path) -> None:
         assert (
             connection.execute(text("SELECT upper_bound FROM sensor_rules")).scalar_one() == 80
         )
+    engine.dispose()
+    upgrade_database(url)
+
+
+def test_incident_migration_enforces_one_open_record(tmp_path: Path):
+    url = f"sqlite:///{tmp_path / 'incident-migration.db'}"
+    upgrade_database(url)
+    engine = make_engine(url)
+    statement = text(
+        "INSERT INTO connectivity_incidents (sensor_id, metric, started_at, detected_at, "
+        "last_received_at, stale_after_seconds) VALUES "
+        "('pump', 'pressure', :now, :now, :now, 300)"
+    )
+    with engine.begin() as connection:
+        connection.execute(statement, {"now": "2026-10-27 12:00:00.000000"})
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(statement, {"now": "2026-10-27 12:00:01.000000"})
+    engine.dispose()
+    command.downgrade(alembic_config(url), "20261021_0004")
+    engine = make_engine(url)
+    assert "connectivity_incidents" not in inspect(engine).get_table_names()
     engine.dispose()
     upgrade_database(url)
