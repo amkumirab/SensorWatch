@@ -7,6 +7,7 @@
     <title>SensorWatch</title>
     <link rel="stylesheet" href="/assets/styles.css" />
     <script src="/assets/rule-editor.js" defer></script>
+    <script src="/assets/connectivity-history.js" defer></script>
     <script src="/assets/app.js" defer></script>
   </head>
   <body>
@@ -146,6 +147,54 @@
         <div class="rule-footer">
           <p id="rule-status" class="rule-help" role="status" aria-live="polite">Select a sensor series to configure its rule.</p>
           <button id="reload-rule" class="button compact" type="button" disabled>Reload rule</button>
+        </div>
+      </section>
+
+      <section id="connectivity-history" class="panel incidents-panel" aria-labelledby="incident-heading">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">CONNECTIVITY HISTORY</p>
+            <h2 id="incident-heading">Stream outages</h2>
+          </div>
+          <button id="reload-incidents" class="button compact" type="button">Refresh history</button>
+        </div>
+        <p class="rule-help">Recorded by the standalone monitor. Times are shown in your local timezone.</p>
+        <form id="incident-filters" class="incident-filters">
+          <div>
+            <label for="incident-sensor">Incident sensor</label>
+            <input id="incident-sensor" type="text" placeholder="All sensors" maxlength="80"
+              pattern="[A-Za-z0-9_.:\-]+" />
+          </div>
+          <div>
+            <label for="incident-from">Outage start from</label>
+            <input id="incident-from" type="datetime-local" />
+          </div>
+          <div>
+            <label for="incident-to">Outage start to</label>
+            <input id="incident-to" type="datetime-local" />
+          </div>
+          <div>
+            <label for="incident-state">Incident status</label>
+            <select id="incident-state">
+              <option value="">All statuses</option>
+              <option value="open">Open</option>
+              <option value="recovered">Recovered</option>
+            </select>
+          </div>
+          <button id="apply-incident-filters" class="button primary" type="submit">Apply filters</button>
+        </form>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Sensor / metric</th><th>Status</th><th>Started</th><th>Recovered</th><th>Duration</th></tr></thead>
+            <tbody id="incident-table"><tr><td colspan="5" class="table-empty">Loading connectivity history…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="rule-footer">
+          <p id="incident-status" class="rule-help" role="status" aria-live="polite"></p>
+          <div class="rule-actions">
+            <button id="incident-previous" class="button compact" type="button" disabled>Previous incidents</button>
+            <button id="incident-next" class="button compact" type="button" disabled>Next incidents</button>
+          </div>
         </div>
       </section>
 

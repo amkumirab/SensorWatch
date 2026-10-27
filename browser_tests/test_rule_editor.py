@@ -13,7 +13,7 @@ import pytest
 from playwright.sync_api import expect, sync_playwright
 from sqlalchemy import create_engine, update
 
-from sensorwatch.models import SensorReading
+from sensorwatch.models import ConnectivityIncident, SensorReading
 
 
 @pytest.fixture
@@ -146,6 +146,9 @@ def test_validation_selection_and_responsive_layout(dashboard):
         panel = page.locator("#rule-editor").bounding_box()
         assert panel["x"] >= 0
         assert panel["x"] + panel["width"] <= width
+        history_panel = page.locator("#connectivity-history").bounding_box()
+        assert history_panel["x"] >= 0
+        assert history_panel["x"] + history_panel["width"] <= width
         if width in (320, 1440):
             page.keyboard.press("Control+Home")
             output = Path("build/browser-check")
@@ -233,3 +236,88 @@ def test_stream_status_timeout_and_recovery(dashboard, tmp_path):
     expect(page.locator("#stale-series-count")).to_have_text("0 stale streams")
     page.reload()
     expect(page.get_by_label("Stale after (seconds)")).to_have_value("60")
+
+
+def run_incident_monitor(tmp_path):
+    env = {**os.environ, "SENSORWATCH_DATABASE_URL": f"sqlite:///{tmp_path / 'browser.db'}"}
+    result = subprocess.run(
+        [sys.executable, "-m", "sensorwatch", "monitor", "--once"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_connectivity_history_survives_recovery_and_filters(dashboard, tmp_path):
+    page, api, url = dashboard
+    seed(api)
+    engine = create_engine(f"sqlite:///{tmp_path / 'browser.db'}")
+    with engine.begin() as connection:
+        connection.execute(
+            update(SensorReading).values(
+                created_at=datetime.now(timezone.utc) - timedelta(seconds=400)
+            )
+        )
+    engine.dispose()
+    # The monitor records the outage before any dashboard has been opened.
+    run_incident_monitor(tmp_path)
+    run_incident_monitor(tmp_path)
+    assert len(api.get("/api/v1/connectivity/incidents").json()) == 1
+    page.goto(url)
+    expect(page.locator("#incident-table")).to_contain_text("Open")
+    page.get_by_label("Incident sensor").fill("missing")
+    page.get_by_role("button", name="Apply filters").click()
+    expect(page.locator("#incident-status")).to_contain_text("No incidents match")
+    page.get_by_label("Incident sensor").fill("boiler-01")
+    page.get_by_label("Outage start from").fill("2099-01-01T00:00")
+    page.get_by_role("button", name="Apply filters").click()
+    expect(page.locator("#incident-table")).to_contain_text("No connectivity incidents")
+    page.get_by_label("Outage start from").fill("")
+    page.get_by_role("button", name="Apply filters").click()
+    expect(page.locator("#incident-table")).to_contain_text("boiler-01")
+    seed(api)
+    run_incident_monitor(tmp_path)
+    page.get_by_role("button", name="Refresh history").click()
+    expect(page.locator("#incident-table")).to_contain_text("Recovered")
+    expect(page.locator("#incident-table")).not_to_contain_text("ongoing")
+    page.reload()
+    expect(page.locator("#incident-table")).to_contain_text("Recovered")
+
+
+def test_history_pagination_and_invalid_time_range(dashboard, tmp_path):
+    page, _, url = dashboard
+    engine = create_engine(f"sqlite:///{tmp_path / 'browser.db'}")
+    now = datetime.now(timezone.utc)
+    with engine.begin() as connection:
+        connection.execute(
+            ConnectivityIncident.__table__.insert(),
+            [
+                {
+                    "sensor_id": "pagination",
+                    "metric": "pressure",
+                    "started_at": now,
+                    "detected_at": now,
+                    "last_received_at": now - timedelta(seconds=300),
+                    "stale_after_seconds": 300,
+                    "recovered_at": now + timedelta(seconds=1),
+                    "recovery_reason": "data_received",
+                }
+                for _ in range(51)
+            ],
+        )
+    engine.dispose()
+    page.goto(url)
+    expect(page.locator("#incident-table tr")).to_have_count(50)
+    page.get_by_role("button", name="Next incidents").click()
+    expect(page.locator("#incident-table tr")).to_have_count(1)
+    expect(page.get_by_role("button", name="Next incidents")).to_be_disabled()
+    page.get_by_role("button", name="Previous incidents").click()
+    expect(page.locator("#incident-table tr")).to_have_count(50)
+    page.get_by_label("Outage start from").fill("2027-01-01T00:00")
+    page.get_by_label("Outage start to").fill("2026-01-01T00:00")
+    page.get_by_role("button", name="Apply filters").click()
+    expect(page.locator("#incident-status")).to_have_text(
+        "Start time must not be after end time."
+    )

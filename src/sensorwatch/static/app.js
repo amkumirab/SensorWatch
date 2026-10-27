@@ -280,6 +280,8 @@ $("#generate-demo").addEventListener("click", async (event) => {
 });
 
 const ruleEditor = new RuleEditor(request);
+const connectivityHistory = new ConnectivityHistory(request);
 window.addEventListener("resize", drawChart);
 refresh();
-window.setInterval(refresh, 10000);
+connectivityHistory.load();
+window.setInterval(() => { refresh(); connectivityHistory.load(true); }, 10000);

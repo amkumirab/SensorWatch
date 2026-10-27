@@ -58,6 +58,7 @@ jobs:
       SENSORWATCH_TEST_POSTGRES_URL: postgresql+psycopg://sensorwatch:sensorwatch@localhost:5432/sensorwatch
     steps:
       - uses: actions/checkout@v7
+      - run: docker compose config --quiet
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"

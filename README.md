@@ -26,6 +26,7 @@ baseline center, and baseline scale so the result remains explainable.
 - Per-sensor limits and detection sensitivity with historical rule snapshots
 - Dashboard rule editor with validation and temporary API key entry
 - Server-receipt-based stream connectivity monitoring with per-series timeouts
+- Durable outage history, recovery durations, and a standalone connectivity monitor
 - Summary, fleet, telemetry, and anomaly APIs
 - Responsive dependency-free monitoring dashboard
 - Deterministic three-sensor demo-data generator
@@ -192,10 +193,55 @@ Server clocks should be synchronized; negative elapsed time after a clock adjust
 treated as zero.
 
 Status is computed when queried and appears on the dashboard's next 10-second refresh.
-This feature does not create persistent alert records or send background notifications.
+Live connectivity status is separate from anomaly alerts. A standalone monitor records
+durable outage history as described below; no external notifications are sent.
 For a stale stream, check gateway connectivity and recent ingestion errors first, then verify
 that its timeout matches the expected sampling interval. Run `sensorwatch migrate` before
 starting this version against an existing database.
+
+## Connectivity incident history
+
+Apply migrations, then run the API and monitor in separate terminals:
+
+```bash
+sensorwatch migrate
+sensorwatch serve
+```
+
+```bash
+sensorwatch monitor --interval 15
+```
+
+The monitor checks every 15 seconds by default, independently of any open browser. Use
+`sensorwatch monitor --once` for a single check; it exits with code 1 if the database check
+fails. Continuous mode logs the failure and retries on the next interval. Ctrl+C or SIGTERM
+stops it cleanly. Check results are JSON log records with opened/recovered counts.
+
+Docker Compose starts the monitor automatically after the API health check succeeds and
+migrations have completed. `SENSORWATCH_MONITOR_INTERVAL` controls the Compose interval
+(1–3600 seconds); use `--interval` for local CLI runs. The API and monitor must use the
+same database URL and `SENSORWATCH_STALE_AFTER_SECONDS` value.
+
+One open incident is allowed per sensor/metric pair. Monitor transactions are serialized
+across processes, and a unique database index additionally rejects duplicate open records.
+Incident start is inferred from the last receipt plus its timeout; `detected_at` records
+when the monitor actually noticed it. Recovery uses the first new server receipt, even
+if multiple readings arrive before the next check. Duration is measured from start to
+recovery, or to the current time for an ongoing incident.
+
+If a longer timeout restores online status without new data, the incident closes with
+`recovery_reason: "timeout_changed"`; actual data recovery uses `"data_received"`.
+Changes never rewrite closed records. History survives API and monitor restarts.
+Checks do not reconstruct every unobserved outage while the monitor was stopped; brief
+gaps entirely between checks can be missed. Keep the monitor running for continuous coverage.
+
+The dashboard's **Stream outages** panel offers sensor, outage-start range, and status
+filters with pagination. Times are displayed in the browser's local timezone; API filters
+must include a timezone. `GET /api/v1/connectivity/incidents` accepts `sensor_id`, `metric`,
+`status` (`open` or `recovered`), `started_from`, `started_to`, `limit` (default 50, max 200),
+and `offset`. Time bounds are inclusive and filter the incident's start, not all incidents
+overlapping the range. Results are newest first. This read endpoint follows the same
+trusted-network guidance as the other telemetry queries.
 
 ## Send a reading
 
@@ -259,6 +305,7 @@ Copy `.env.example` or set environment variables before starting the service.
 | `SENSORWATCH_DEMO_ENABLED` | `true` | Enable the demo-data endpoint |
 | `SENSORWATCH_INGEST_API_KEY` | unset | Protect ingestion, demo generation, and rule mutations with `X-API-Key` |
 | `SENSORWATCH_STALE_AFTER_SECONDS` | `300` | Global stream silence timeout, from 1 to 604800 seconds |
+| `SENSORWATCH_MONITOR_INTERVAL` | `15` | Docker Compose monitor interval; local CLI uses `--interval` |
 
 ## Development
 
@@ -276,7 +323,8 @@ pytest browser_tests
 ```
 
 The browser suite checks rule creation, updates, deletion, authentication errors,
-validation, sensor selection, refresh behavior, connectivity recovery, and responsive layouts.
+validation, sensor selection, refresh behavior, connectivity recovery, durable outage history,
+history filters/pagination, and responsive layouts.
 
 Install PostgreSQL support for development with:
 
@@ -293,6 +341,7 @@ python -m pip install -e ".[dev,postgres]"
 | `GET` | `/api/v1/readings` | Query telemetry and anomalies |
 | `GET` | `/api/v1/summary` | Retrieve operational totals |
 | `GET` | `/api/v1/sensors` | List sensor/metric series |
+| `GET` | `/api/v1/connectivity/incidents` | Query persistent outages, recovery times, and durations |
 | `GET` | `/api/v1/alerts` | Query alerts by state or severity |
 | `GET` | `/api/v1/rules` | List per-series alert rules |
 | `GET` | `/api/v1/rules/{sensor_id}/{metric}` | Retrieve one rule |

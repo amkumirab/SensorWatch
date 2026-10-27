@@ -50,7 +50,7 @@ settings = get_settings()
 
 app = FastAPI(
     title="SensorWatch API",
-    version="0.5.0",
+    version="0.6.0",
     description="Streaming sensor ingestion and robust rolling anomaly detection.",
 )
 app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")

@@ -187,6 +187,11 @@ input {
 
 .explanation { color: var(--muted); font-size: 12px; }
 .alerts-panel { margin-bottom: 14px; }
+.incidents-panel { margin-bottom: 14px; }
+.incident-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.incident-filters > div { display: grid; gap: 8px; flex: 1 1 180px; min-width: 0; }
+.incident-filters label { color: var(--muted); font-size: 13px; }
+.incident-filters input, .incident-filters select { width: 100%; min-width: 0; }
 .rules-panel { margin-bottom: 14px; }
 .rule-access { display: grid; gap: 8px; max-width: 320px; width: 100%; }
 .rule-access label, .rule-grid label { font-size: 13px; color: var(--muted); }
