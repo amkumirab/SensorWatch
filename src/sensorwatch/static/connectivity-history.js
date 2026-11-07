@@ -5,6 +5,7 @@ class ConnectivityHistory {
     this.offset = 0;
     this.limit = 50;
     this.version = 0;
+    this.healthVersion = 0;
     this.busy = false;
     this.previous = document.querySelector("#incident-previous");
     this.next = document.querySelector("#incident-next");
@@ -28,7 +29,10 @@ class ConnectivityHistory {
       this.offset = 0;
       this.load();
     });
-    document.querySelector("#reload-incidents").addEventListener("click", () => this.load());
+    document.querySelector("#reload-incidents").addEventListener("click", () => {
+      this.load();
+      this.loadHealth();
+    });
     this.previous.addEventListener("click", () => {
       this.offset = Math.max(0, this.offset - this.limit);
       this.load();
@@ -42,6 +46,36 @@ class ConnectivityHistory {
   message(text, error = false) {
     this.status.textContent = text;
     this.status.classList.toggle("rule-error", error);
+  }
+
+  async loadHealth() {
+    const version = ++this.healthVersion;
+    const panel = document.querySelector("#monitor-health");
+    try {
+      const health = await this.request("/api/v1/monitor/health", {
+        allowUnhealthy: true, cache: "no-store",
+      });
+      if (version !== this.healthVersion) return;
+      const labels = { healthy: "Healthy", delayed: "Delayed", not_started: "Not started" };
+      if (!Object.hasOwn(labels, health.status)) throw new Error("Invalid monitor response");
+      panel.dataset.state = health.status;
+      document.querySelector("#monitor-health-state").textContent = labels[health.status];
+      document.querySelector("#monitor-last-success").textContent = dateTime(health.last_success_at);
+      document.querySelector("#monitor-last-counts").textContent = health.last_success_at
+        ? `${health.last_opened_incidents} opened, ${health.last_recovered_incidents} recovered` : "—";
+      document.querySelector("#monitor-health-message").textContent = health.status === "not_started"
+        ? "No successful check recorded yet. Start the connectivity monitor."
+        : health.status === "delayed"
+          ? `No successful check within ${health.timeout_seconds} seconds. Check that the monitor is running.`
+          : `Last check succeeded. Expected interval: ${health.interval_seconds} seconds; delayed after ${health.timeout_seconds} seconds.`;
+    } catch (error) {
+      if (version !== this.healthVersion) return;
+      panel.dataset.state = "unavailable";
+      document.querySelector("#monitor-health-state").textContent = "Unavailable";
+      document.querySelector("#monitor-last-success").textContent = "—";
+      document.querySelector("#monitor-last-counts").textContent = "—";
+      document.querySelector("#monitor-health-message").textContent = "Could not check monitor health. Try refreshing history.";
+    }
   }
 
   async load(automatic = false) {

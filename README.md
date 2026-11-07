@@ -27,6 +27,7 @@ baseline center, and baseline scale so the result remains explainable.
 - Dashboard rule editor with validation and temporary API key entry
 - Server-receipt-based stream connectivity monitoring with per-series timeouts
 - Durable outage history, recovery durations, and a standalone connectivity monitor
+- Monitor heartbeat, last-run counts, and explicit health/readiness status
 - Summary, fleet, telemetry, and anomaly APIs
 - Responsive dependency-free monitoring dashboard
 - Deterministic three-sensor demo-data generator
@@ -222,6 +223,47 @@ migrations have completed. `SENSORWATCH_MONITOR_INTERVAL` controls the Compose i
 (1–3600 seconds); use `--interval` for local CLI runs. The API and monitor must use the
 same database URL and `SENSORWATCH_STALE_AFTER_SECONDS` value.
 
+## Monitor health
+
+The **Connectivity monitor** indicator in the outage-history panel shows **Healthy**,
+**Delayed**, or **Not started**, plus the last successful check and its opened/recovered
+incident counts. A failed health request shows **Unavailable** instead of leaving a stale
+green indicator. The dashboard checks health every 10 seconds and on **Refresh history**.
+
+`GET /api/v1/monitor/health` returns HTTP `200` for a healthy monitor, or HTTP `503` when
+delayed or not started. Its JSON response includes `status`, `last_success_at`, `age_seconds`,
+`timeout_seconds`, `interval_seconds`, `last_opened_incidents`, and `last_recovered_incidents`.
+Use this endpoint for monitor-readiness checks. The existing `/health` remains an independent
+database-backed API liveness check, allowing the API to start before the monitor in Compose.
+
+An absent heartbeat means no successful check has been recorded since this feature's migration;
+it is not inferred from old incidents. Counts and timestamps are `null` until that first check.
+An empty fleet still produces a heartbeat after a successful check. The heartbeat is committed
+in the same transaction as incident changes, so a failed check or commit never advances it.
+
+The effective timeout is the greater of `SENSORWATCH_MONITOR_HEALTH_TIMEOUT_SECONDS`
+(default 60 seconds, range 1–86400) and three times the interval recorded by the monitor.
+At the exact timeout boundary the status remains healthy; it becomes delayed only beyond it.
+This allows intentionally slow monitoring schedules without false delay warnings. A new
+successful check restores healthy status, and health responses are not cached.
+
+Health describes recent successful work by the shared logical monitor, not a guarantee that
+a particular process is currently alive. `monitor --once` refreshes it too, but it becomes
+delayed unless another successful check follows. Multiple workers share one heartbeat.
+Keep API and worker clocks synchronized; negative elapsed time is treated as zero.
+
+After upgrading, run `sensorwatch migrate`, restart the API and monitor, then check:
+
+```bash
+curl -i http://127.0.0.1:8000/api/v1/monitor/health
+```
+
+For **Not started**, start the monitor and verify migrations were applied. For **Delayed**,
+inspect monitor process/container status, database connectivity, and `connectivity_check_failed`
+log events. Health polling itself never writes or refreshes the heartbeat.
+
+## Incident timing and queries
+
 One open incident is allowed per sensor/metric pair. Monitor transactions are serialized
 across processes, and a unique database index additionally rejects duplicate open records.
 Incident start is inferred from the last receipt plus its timeout; `detected_at` records
@@ -306,6 +348,7 @@ Copy `.env.example` or set environment variables before starting the service.
 | `SENSORWATCH_INGEST_API_KEY` | unset | Protect ingestion, demo generation, and rule mutations with `X-API-Key` |
 | `SENSORWATCH_STALE_AFTER_SECONDS` | `300` | Global stream silence timeout, from 1 to 604800 seconds |
 | `SENSORWATCH_MONITOR_INTERVAL` | `15` | Docker Compose monitor interval; local CLI uses `--interval` |
+| `SENSORWATCH_MONITOR_HEALTH_TIMEOUT_SECONDS` | `60` | Minimum monitor health timeout; effective timeout is at least three check intervals |
 
 ## Development
 
@@ -325,6 +368,7 @@ pytest browser_tests
 The browser suite checks rule creation, updates, deletion, authentication errors,
 validation, sensor selection, refresh behavior, connectivity recovery, durable outage history,
 history filters/pagination, and responsive layouts.
+They also verify monitor startup, delayed checks, recovery, and unavailable health requests.
 
 Install PostgreSQL support for development with:
 
@@ -351,6 +395,7 @@ python -m pip install -e ".[dev,postgres]"
 | `POST` | `/api/v1/alerts/{id}/resolve` | Resolve an acknowledged alert |
 | `POST` | `/api/v1/demo/generate` | Generate reproducible demo telemetry; API key protected when configured |
 | `GET` | `/health` | Database-backed health check |
+| `GET` | `/api/v1/monitor/health` | Monitor heartbeat and last-run counts; unhealthy states return HTTP 503 |
 
 ## Production roadmap
 

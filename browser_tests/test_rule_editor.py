@@ -13,7 +13,7 @@ import pytest
 from playwright.sync_api import expect, sync_playwright
 from sqlalchemy import create_engine, update
 
-from sensorwatch.models import ConnectivityIncident, SensorReading
+from sensorwatch.models import ConnectivityIncident, MonitorHeartbeat, SensorReading
 
 
 @pytest.fixture
@@ -26,6 +26,7 @@ def dashboard(tmp_path):
         **os.environ,
         "SENSORWATCH_DATABASE_URL": f"sqlite:///{tmp_path / 'browser.db'}",
         "SENSORWATCH_INGEST_API_KEY": "browser-test-key",
+        "SENSORWATCH_MONITOR_HEALTH_TIMEOUT_SECONDS": "60",
     }
     subprocess.run([sys.executable, "-m", "sensorwatch", "migrate"], env=env, check=True)
     with (tmp_path / "server.log").open("w") as log:
@@ -210,7 +211,7 @@ def test_stream_status_timeout_and_recovery(dashboard, tmp_path):
     seed(api)
     page.clock.install()
     page.goto(url)
-    expect(page.locator(".stream-status")).to_have_text("Online")
+    expect(page.locator("#sensor-list .stream-status")).to_have_text("Online")
     page.get_by_label("API key", exact=True).fill("browser-test-key")
     page.get_by_label("Stale after (seconds)").fill("60")
     page.get_by_role("button", name="Save rule").click()
@@ -226,13 +227,13 @@ def test_stream_status_timeout_and_recovery(dashboard, tmp_path):
     engine.dispose()
     with page.expect_response("**/api/v1/sensors"):
         page.clock.fast_forward(10000)
-    expect(page.locator(".stream-status")).to_have_text("Stale")
+    expect(page.locator("#sensor-list .stream-status")).to_have_text("Stale")
     expect(page.locator("#stale-series-count")).to_have_text("1 stale streams")
     expect(page.locator(".stream-meta")).to_contain_text("Last received")
     seed(api)
     with page.expect_response("**/api/v1/sensors"):
         page.clock.fast_forward(10000)
-    expect(page.locator(".stream-status")).to_have_text("Online")
+    expect(page.locator("#sensor-list .stream-status")).to_have_text("Online")
     expect(page.locator("#stale-series-count")).to_have_text("0 stale streams")
     page.reload()
     expect(page.get_by_label("Stale after (seconds)")).to_have_value("60")
@@ -321,3 +322,34 @@ def test_history_pagination_and_invalid_time_range(dashboard, tmp_path):
     expect(page.locator("#incident-status")).to_have_text(
         "Start time must not be after end time."
     )
+
+
+def test_monitor_health_transitions_and_request_failure(dashboard, tmp_path):
+    page, _, url = dashboard
+    page.goto(url)
+    expect(page.locator("#monitor-health-state")).to_have_text("Not started")
+    run_incident_monitor(tmp_path)
+    page.get_by_role("button", name="Refresh history").click()
+    expect(page.locator("#monitor-health-state")).to_have_text("Healthy")
+    expect(page.locator("#monitor-last-counts")).to_have_text("0 opened, 0 recovered")
+    engine = create_engine(f"sqlite:///{tmp_path / 'browser.db'}")
+    with engine.begin() as connection:
+        connection.execute(
+            update(MonitorHeartbeat).values(
+                last_success_at=datetime.now(timezone.utc) - timedelta(seconds=61)
+            )
+        )
+    engine.dispose()
+    page.get_by_role("button", name="Refresh history").click()
+    expect(page.locator("#monitor-health-state")).to_have_text("Delayed")
+    pattern = "**/api/v1/monitor/health"
+    page.route(pattern, lambda route: route.abort())
+    page.get_by_role("button", name="Refresh history").click()
+    expect(page.locator("#monitor-health-state")).to_have_text("Unavailable")
+    expect(page.locator("#monitor-last-success")).to_have_text("—")
+    page.unroute(pattern)
+    run_incident_monitor(tmp_path)
+    page.get_by_role("button", name="Refresh history").click()
+    expect(page.locator("#monitor-health-state")).to_have_text("Healthy")
+    page.reload()
+    expect(page.locator("#monitor-health-state")).to_have_text("Healthy")

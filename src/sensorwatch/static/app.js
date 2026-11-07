@@ -10,7 +10,7 @@ function showToast(message, isError = false) {
 }
 
 async function request(url, options = {}) {
-  const { allowMissing = false, ...fetchOptions } = options;
+  const { allowMissing = false, allowUnhealthy = false, ...fetchOptions } = options;
   const apiKey = $("#api-key").value;
   const response = await fetch(url, {
     ...fetchOptions,
@@ -21,7 +21,7 @@ async function request(url, options = {}) {
     },
   });
   if (response.status === 204 || (allowMissing && response.status === 404)) return null;
-  if (!response.ok) {
+  if (!response.ok && !(allowUnhealthy && response.status === 503)) {
     const body = await response.json().catch(() => ({}));
     if (response.status === 401) throw new Error("Enter a valid API key and try again.");
     const detail = Array.isArray(body.detail)
@@ -284,4 +284,7 @@ const connectivityHistory = new ConnectivityHistory(request);
 window.addEventListener("resize", drawChart);
 refresh();
 connectivityHistory.load();
-window.setInterval(() => { refresh(); connectivityHistory.load(true); }, 10000);
+connectivityHistory.loadHealth();
+window.setInterval(() => {
+  refresh(); connectivityHistory.load(true); connectivityHistory.loadHealth();
+}, 10000);

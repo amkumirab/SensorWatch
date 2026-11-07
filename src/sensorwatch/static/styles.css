@@ -188,6 +188,14 @@ input {
 .explanation { color: var(--muted); font-size: 12px; }
 .alerts-panel { margin-bottom: 14px; }
 .incidents-panel { margin-bottom: 14px; }
+.monitor-health { padding: 16px; margin: 16px 0; border: 1px solid var(--line); border-radius: 8px; }
+.monitor-health-heading, .monitor-health-details { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.monitor-health-details { color: var(--muted); font-size: 12px; }
+.monitor-health-details strong { color: var(--text); font-weight: 500; }
+#monitor-health-state { color: var(--muted); }
+.monitor-health[data-state="healthy"] #monitor-health-state { color: var(--green); }
+.monitor-health[data-state="delayed"] #monitor-health-state { color: var(--amber); }
+.monitor-health[data-state="unavailable"] #monitor-health-state { color: var(--red); }
 .incident-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
 .incident-filters > div { display: grid; gap: 8px; flex: 1 1 180px; min-width: 0; }
 .incident-filters label { color: var(--muted); font-size: 13px; }

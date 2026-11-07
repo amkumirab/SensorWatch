@@ -159,6 +159,17 @@
           <button id="reload-incidents" class="button compact" type="button">Refresh history</button>
         </div>
         <p class="rule-help">Recorded by the standalone monitor. Times are shown in your local timezone.</p>
+        <div id="monitor-health" class="monitor-health" data-state="checking" role="status" aria-live="polite">
+          <div class="monitor-health-heading">
+            <strong>Connectivity monitor</strong>
+            <span id="monitor-health-state" class="stream-status">Checking…</span>
+          </div>
+          <p id="monitor-health-message" class="rule-help">Checking the last successful run.</p>
+          <div class="monitor-health-details">
+            <span>Last successful check: <strong id="monitor-last-success">—</strong></span>
+            <span>Last run: <strong id="monitor-last-counts">—</strong></span>
+          </div>
+        </div>
         <form id="incident-filters" class="incident-filters">
           <div>
             <label for="incident-sensor">Incident sensor</label>
