@@ -61,6 +61,23 @@ class SensorRule(Base):
     stale_after_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
+class MonitorHeartbeat(Base):
+    __tablename__ = "monitor_heartbeats"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_monitor_singleton"),
+        CheckConstraint("interval_seconds BETWEEN 1 AND 3600", name="ck_monitor_interval"),
+        CheckConstraint(
+            "opened_incidents >= 0 AND recovered_incidents >= 0", name="ck_monitor_counts"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    last_success_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    interval_seconds: Mapped[int] = mapped_column(Integer)
+    opened_incidents: Mapped[int] = mapped_column(Integer)
+    recovered_incidents: Mapped[int] = mapped_column(Integer)
+
+
 class ConnectivityIncident(Base):
     __tablename__ = "connectivity_incidents"
     __table_args__ = (

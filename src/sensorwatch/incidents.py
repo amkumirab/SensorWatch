@@ -6,7 +6,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from sensorwatch.connectivity import stream_health, utc_now
-from sensorwatch.models import ConnectivityIncident, SensorReading
+from sensorwatch.models import ConnectivityIncident, MonitorHeartbeat, SensorReading
 from sensorwatch.schemas import ConnectivityIncidentResponse
 
 
@@ -18,7 +18,11 @@ def as_utc(value: datetime) -> datetime:
     )
 
 
-def monitor_once(sessions: sessionmaker, *, now: datetime | None = None) -> dict[str, int]:
+def monitor_once(
+    sessions: sessionmaker, *, now: datetime | None = None, interval_seconds: int = 15
+) -> dict[str, int]:
+    if not 1 <= interval_seconds <= 3600:
+        raise ValueError("interval_seconds must be between 1 and 3600")
     with sessions() as db:
         # All monitor processes take the same lock. SQLite also excludes ingestion writes
         # during the short check; PostgreSQL uses a transaction-scoped advisory lock.
@@ -28,6 +32,15 @@ def monitor_once(sessions: sessionmaker, *, now: datetime | None = None) -> dict
             db.execute(text("SELECT pg_advisory_xact_lock(73573001)"))
         checked_at = as_utc(now if now is not None else utc_now())
         counts = _check(db, checked_at)
+        heartbeat = db.get(MonitorHeartbeat, 1)
+        if heartbeat is None:
+            heartbeat = MonitorHeartbeat(id=1)
+            db.add(heartbeat)
+        heartbeat.last_success_at = as_utc(now if now is not None else utc_now())
+        heartbeat.interval_seconds = interval_seconds
+        heartbeat.opened_incidents = counts["opened"]
+        heartbeat.recovered_incidents = counts["recovered"]
+        # The heartbeat and incidents become visible together, only if commit succeeds.
         db.commit()
         return counts
 

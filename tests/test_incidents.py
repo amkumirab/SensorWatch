@@ -173,10 +173,12 @@ def test_monitor_once_exit_codes_and_retry(monkeypatch, caplog):
 
     from sensorwatch import monitor
 
-    monkeypatch.setattr(monitor, "monitor_once", lambda _: {"opened": 1, "recovered": 0})
+    monkeypatch.setattr(
+        monitor, "monitor_once", lambda _, **kwargs: {"opened": 1, "recovered": 0}
+    )
     assert monitor.run_monitor(once=True) == 0
 
-    def fail(_):
+    def fail(_, **kwargs):
         raise SQLAlchemyError("private details must not be logged")
 
     monkeypatch.setattr(monitor, "monitor_once", fail)

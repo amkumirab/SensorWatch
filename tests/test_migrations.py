@@ -52,7 +52,7 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "20261027_0005"
+    assert revision == "20261107_0006"
     engine.dispose()
 
 
@@ -82,7 +82,7 @@ def test_migration_stamps_legacy_schema_without_losing_data(tmp_path: Path) -> N
         reading_count = connection.execute(
             text("SELECT COUNT(*) FROM sensor_readings")
         ).scalar_one()
-    assert revision == "20261027_0005"
+    assert revision == "20261107_0006"
     assert reading_count == 1
     migrated_engine.dispose()
 

@@ -21,7 +21,7 @@ def run_monitor(*, interval: int = 15, once: bool = False) -> int:
     try:
         while not stop.is_set():
             try:
-                counts = monitor_once(SessionLocal)
+                counts = monitor_once(SessionLocal, interval_seconds=interval)
                 logger.info(json.dumps({"event": "connectivity_check", **counts}))
             except SQLAlchemyError as error:
                 # Do not print connection strings, request data, or SQL parameters.
