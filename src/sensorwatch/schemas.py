@@ -113,6 +113,16 @@ class SeriesConnectivity(BaseModel):
     stale_after_seconds: int
 
 
+class MonitorHealthResponse(BaseModel):
+    status: Literal["healthy", "delayed", "not_started"]
+    last_success_at: datetime | None
+    age_seconds: float | None
+    timeout_seconds: int
+    interval_seconds: int | None
+    last_opened_incidents: int | None
+    last_recovered_incidents: int | None
+
+
 class ConnectivityIncidentResponse(BaseModel):
     id: int
     sensor_id: str

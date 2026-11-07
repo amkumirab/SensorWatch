@@ -13,8 +13,15 @@ from sensorwatch.api import app
 from sensorwatch.config import Settings, normalize_database_url
 from sensorwatch.connectivity import stream_health
 from sensorwatch.db import get_db, make_engine
+from sensorwatch.heartbeat import monitor_health
 from sensorwatch.incidents import monitor_once
-from sensorwatch.models import Alert, ConnectivityIncident, SensorReading, SensorRule
+from sensorwatch.models import (
+    Alert,
+    ConnectivityIncident,
+    MonitorHeartbeat,
+    SensorReading,
+    SensorRule,
+)
 from sensorwatch.schemas import ReadingCreate
 from sensorwatch.service import ReadingService
 
@@ -113,8 +120,13 @@ def test_postgres_monitor_serializes_and_persists_recovery():
             ).all()
             assert len(rows) == 1
             assert rows[0].recovered_at == now + timedelta(seconds=1)
+            assert len(db.scalars(select(MonitorHeartbeat)).all()) == 1
+            health = monitor_health(db, now=now + timedelta(seconds=2))
+            assert health.status == "healthy"
+            assert health.last_recovered_incidents == 1
     finally:
         with sessions.begin() as db:
+            db.execute(delete(MonitorHeartbeat).where(MonitorHeartbeat.id == 1))
             db.execute(
                 delete(ConnectivityIncident).where(ConnectivityIncident.sensor_id == sensor)
             )

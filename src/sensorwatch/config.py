@@ -15,10 +15,13 @@ class Settings:
     demo_enabled: bool
     ingest_api_key_digest: bytes | None = None
     stale_after_seconds: int = 300
+    monitor_health_timeout_seconds: int = 60
 
     def __post_init__(self) -> None:
         if not 1 <= self.stale_after_seconds <= 604800:
             raise ValueError("stale_after_seconds must be between 1 and 604800")
+        if not 1 <= self.monitor_health_timeout_seconds <= 86400:
+            raise ValueError("monitor_health_timeout_seconds must be between 1 and 86400")
 
 
 def digest_api_key(api_key: str) -> bytes:
@@ -49,4 +52,7 @@ def get_settings() -> Settings:
         in {"1", "true", "yes", "on"},
         ingest_api_key_digest=(digest_api_key(ingest_api_key) if ingest_api_key else None),
         stale_after_seconds=int(os.getenv("SENSORWATCH_STALE_AFTER_SECONDS", "300")),
+        monitor_health_timeout_seconds=int(
+            os.getenv("SENSORWATCH_MONITOR_HEALTH_TIMEOUT_SECONDS", "60")
+        ),
     )

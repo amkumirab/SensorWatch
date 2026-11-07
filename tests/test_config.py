@@ -66,3 +66,14 @@ def test_invalid_global_stale_timeout_fails_at_startup(monkeypatch, value):
             get_settings()
     finally:
         get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "86401", "NaN"])
+def test_invalid_monitor_health_timeout_fails_at_startup(monkeypatch, value):
+    monkeypatch.setenv("SENSORWATCH_MONITOR_HEALTH_TIMEOUT_SECONDS", value)
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValueError):
+            get_settings()
+    finally:
+        get_settings.cache_clear()

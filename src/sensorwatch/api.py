@@ -17,6 +17,7 @@ from sensorwatch.auth import require_ingest_api_key
 from sensorwatch.config import get_settings
 from sensorwatch.db import get_db
 from sensorwatch.demo import generate_demo_readings
+from sensorwatch.heartbeat import monitor_health
 from sensorwatch.incidents import list_incidents
 from sensorwatch.models import SensorRule
 from sensorwatch.schemas import (
@@ -25,6 +26,7 @@ from sensorwatch.schemas import (
     BatchResponse,
     ConnectivityIncidentResponse,
     DemoGenerateRequest,
+    MonitorHealthResponse,
     OverviewResponse,
     ReadingBatchCreate,
     ReadingCreate,
@@ -50,7 +52,7 @@ settings = get_settings()
 
 app = FastAPI(
     title="SensorWatch API",
-    version="0.6.0",
+    version="0.7.0",
     description="Streaming sensor ingestion and robust rolling anomaly detection.",
 )
 app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
@@ -156,6 +158,19 @@ def delete_rule(
 @app.get("/", include_in_schema=False)
 def dashboard() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get(
+    "/api/v1/monitor/health",
+    response_model=MonitorHealthResponse,
+    responses={503: {"model": MonitorHealthResponse, "description": "Monitor not ready"}},
+)
+def get_monitor_health(db: Database, response: Response) -> MonitorHealthResponse:
+    health = monitor_health(db)
+    if health.status != "healthy":
+        response.status_code = 503
+    response.headers["Cache-Control"] = "no-store"
+    return health
 
 
 @app.get("/health")
