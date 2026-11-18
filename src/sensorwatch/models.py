@@ -24,11 +24,14 @@ class SensorReading(Base):
     __table_args__ = (
         Index("ix_sensor_metric_recorded", "sensor_id", "metric", "recorded_at"),
         Index("ix_sensor_metric_received", "sensor_id", "metric", "created_at"),
+        Index("uq_sensor_metric_event", "sensor_id", "metric", "event_id", unique=True),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     sensor_id: Mapped[str] = mapped_column(String(80), index=True)
     metric: Mapped[str] = mapped_column(String(80), index=True)
+    event_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    request_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     value: Mapped[float] = mapped_column(Float)
     unit: Mapped[str] = mapped_column(String(24), default="")
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

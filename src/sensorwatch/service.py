@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from datetime import datetime, timezone
+from hashlib import sha256
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, select, text
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, joinedload
 
 from sensorwatch.config import Settings
@@ -17,9 +21,39 @@ from sensorwatch.schemas import (
 )
 
 
+class IdempotencyConflict(ValueError):
+    pass
+
+
+def _utc(value: datetime) -> datetime:
+    return (
+        value.replace(tzinfo=timezone.utc)
+        if value.tzinfo is None
+        else value.astimezone(timezone.utc)
+    )
+
+
+def _request_digest(payload: ReadingCreate) -> str:
+    content = {
+        "value": 0.0 if payload.value == 0 else payload.value,
+        "unit": payload.unit,
+        # A generated server timestamp must not make an otherwise identical retry conflict.
+        "recorded_at": (
+            _utc(payload.recorded_at).isoformat(timespec="microseconds")
+            if "recorded_at" in payload.model_fields_set
+            else None
+        ),
+    }
+    return sha256(
+        json.dumps(content, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    ).hexdigest()
+
+
 class ReadingService:
     def __init__(self, db: Session, settings: Settings):
         self.db = db
+        self.created_count = 0
+        self.replayed_count = 0
         self.detector = RollingMadDetector(
             window=settings.detector_window,
             min_samples=settings.detector_min_samples,
@@ -27,6 +61,82 @@ class ReadingService:
         )
 
     def add(self, payload: ReadingCreate) -> SensorReading:
+        row = None
+        if payload.event_id is not None:
+            self._lock_events([payload])
+            digest = _request_digest(payload)
+            insert = (
+                sqlite_insert
+                if self.db.get_bind().dialect.name == "sqlite"
+                else postgres_insert
+            )
+            claim = (
+                insert(SensorReading)
+                .values(
+                    sensor_id=payload.sensor_id,
+                    metric=payload.metric,
+                    event_id=payload.event_id,
+                    request_digest=digest,
+                    value=payload.value,
+                    unit=payload.unit,
+                    recorded_at=_utc(payload.recorded_at),
+                )
+                .on_conflict_do_nothing(index_elements=["sensor_id", "metric", "event_id"])
+                .returning(SensorReading.id)
+            )
+            claimed_id = self.db.scalar(claim)
+            if claimed_id is None:
+                original = self.db.scalars(
+                    select(SensorReading).where(
+                        SensorReading.sensor_id == payload.sensor_id,
+                        SensorReading.metric == payload.metric,
+                        SensorReading.event_id == payload.event_id,
+                    )
+                ).one()
+                if original.request_digest != digest:
+                    raise IdempotencyConflict(
+                        "event_id already exists with different reading data"
+                    )
+                self.replayed_count += 1
+                return original
+            row = self.db.get(SensorReading, claimed_id)
+        row = self._add_new(payload, row)
+        self.created_count += 1
+        return row
+
+    def add_batch(self, payloads: list[ReadingCreate]) -> list[SensorReading]:
+        self._lock_events(payloads)
+        return [self.add(payload) for payload in payloads]
+
+    def _lock_events(self, payloads: list[ReadingCreate]) -> None:
+        if self.db.get_bind().dialect.name != "postgresql":
+            return
+        lock_ids = {
+            int.from_bytes(
+                sha256(
+                    json.dumps(
+                        [
+                            "sensorwatch:reading-event",
+                            payload.sensor_id,
+                            payload.metric,
+                            payload.event_id,
+                        ],
+                        separators=(",", ":"),
+                    ).encode()
+                ).digest()[:8],
+                "big",
+                signed=True,
+            )
+            for payload in payloads
+            if payload.event_id is not None
+        }
+        # Acquire the entire batch's locks in one order, even if clients reverse the events.
+        for lock_id in sorted(lock_ids):
+            self.db.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id}
+            )
+
+    def _add_new(self, payload: ReadingCreate, row: SensorReading | None) -> SensorReading:
         rule = self.db.get(SensorRule, (payload.sensor_id, payload.metric))
         detector = self.detector
         if rule is not None and rule.detector_threshold is not None:
@@ -44,6 +154,8 @@ class ReadingService:
             .order_by(desc(SensorReading.recorded_at), desc(SensorReading.id))
             .limit(self.detector.window)
         )
+        if row is not None:
+            history_statement = history_statement.where(SensorReading.id != row.id)
         history = list(reversed(self.db.scalars(history_statement).all()))
         detection = detector.detect(payload.value, history)
         outside_bounds = rule is not None and (
@@ -51,26 +163,27 @@ class ReadingService:
             or (rule.upper_bound is not None and payload.value > rule.upper_bound)
         )
 
-        row = SensorReading(
-            sensor_id=payload.sensor_id,
-            metric=payload.metric,
-            value=payload.value,
-            unit=payload.unit,
-            recorded_at=payload.recorded_at,
-            anomaly_score=detection.score,
-            is_anomaly=detection.is_anomaly or outside_bounds,
-            detector_status="anomaly" if outside_bounds else detection.status,
-            baseline_center=detection.center,
-            baseline_scale=detection.scale,
-            applied_rule=(
-                {
-                    "lower_bound": rule.lower_bound,
-                    "upper_bound": rule.upper_bound,
-                    "detector_threshold": detector.threshold,
-                }
-                if rule is not None
-                else None
-            ),
+        if row is None:
+            row = SensorReading(
+                sensor_id=payload.sensor_id,
+                metric=payload.metric,
+                value=payload.value,
+                unit=payload.unit,
+                recorded_at=payload.recorded_at,
+            )
+        row.anomaly_score = detection.score
+        row.is_anomaly = detection.is_anomaly or outside_bounds
+        row.detector_status = "anomaly" if outside_bounds else detection.status
+        row.baseline_center = detection.center
+        row.baseline_scale = detection.scale
+        row.applied_rule = (
+            {
+                "lower_bound": rule.lower_bound,
+                "upper_bound": rule.upper_bound,
+                "detector_threshold": detector.threshold,
+            }
+            if rule is not None
+            else None
         )
         self.db.add(row)
         self.db.flush()

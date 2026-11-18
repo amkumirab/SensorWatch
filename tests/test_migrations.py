@@ -25,6 +25,8 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
         "id",
         "sensor_id",
         "metric",
+        "event_id",
+        "request_digest",
         "value",
         "unit",
         "recorded_at",
@@ -52,7 +54,7 @@ def test_initial_migration_creates_expected_schema(tmp_path: Path) -> None:
         revision = connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert revision == "20261107_0006"
+    assert revision == "20261118_0007"
     engine.dispose()
 
 
@@ -82,7 +84,7 @@ def test_migration_stamps_legacy_schema_without_losing_data(tmp_path: Path) -> N
         reading_count = connection.execute(
             text("SELECT COUNT(*) FROM sensor_readings")
         ).scalar_one()
-    assert revision == "20261107_0006"
+    assert revision == "20261118_0007"
     assert reading_count == 1
     migrated_engine.dispose()
 

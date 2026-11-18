@@ -37,6 +37,7 @@ from sensorwatch.schemas import (
 )
 from sensorwatch.service import (
     AlertStateError,
+    IdempotencyConflict,
     ReadingService,
     acknowledge_alert,
     list_alerts,
@@ -52,7 +53,7 @@ settings = get_settings()
 
 app = FastAPI(
     title="SensorWatch API",
-    version="0.7.0",
+    version="0.8.0",
     description="Streaming sensor ingestion and robust rolling anomaly detection.",
 )
 app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
@@ -183,12 +184,23 @@ def health(db: Database) -> dict[str, str]:
     "/api/v1/readings",
     response_model=ReadingResponse,
     status_code=201,
+    responses={
+        200: {"model": ReadingResponse, "description": "Previously accepted event"},
+        409: {"description": "Event ID reused with different reading data"},
+    },
     dependencies=[Depends(require_ingest_api_key)],
 )
-def create_reading(payload: ReadingCreate, db: Database) -> ReadingResponse:
-    row = ReadingService(db, settings).add(payload)
+def create_reading(payload: ReadingCreate, db: Database, response: Response) -> ReadingResponse:
+    service = ReadingService(db, settings)
+    try:
+        row = service.add(payload)
+    except IdempotencyConflict as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
     db.commit()
     db.refresh(row)
+    if service.replayed_count:
+        response.status_code = 200
     return ReadingResponse.model_validate(row)
 
 
@@ -196,14 +208,28 @@ def create_reading(payload: ReadingCreate, db: Database) -> ReadingResponse:
     "/api/v1/readings/batch",
     response_model=BatchResponse,
     status_code=201,
+    responses={
+        200: {"model": BatchResponse, "description": "Every reading was already accepted"},
+        409: {"description": "Conflicting event; the entire batch was rolled back"},
+    },
     dependencies=[Depends(require_ingest_api_key)],
 )
-def create_reading_batch(payload: ReadingBatchCreate, db: Database) -> BatchResponse:
+def create_reading_batch(
+    payload: ReadingBatchCreate, db: Database, response: Response
+) -> BatchResponse:
     service = ReadingService(db, settings)
-    rows = [service.add(reading) for reading in payload.readings]
+    try:
+        rows = service.add_batch(payload.readings)
+    except IdempotencyConflict as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(error)) from error
     db.commit()
+    if not service.created_count:
+        response.status_code = 200
     return BatchResponse(
         accepted=len(rows),
+        created=service.created_count,
+        replayed=service.replayed_count,
         anomalies=sum(row.is_anomaly for row in rows),
         readings=[ReadingResponse.model_validate(row) for row in rows],
     )
@@ -304,6 +330,8 @@ def generate_demo(payload: DemoGenerateRequest, db: Database) -> BatchResponse:
     db.commit()
     return BatchResponse(
         accepted=len(rows),
+        created=service.created_count,
+        replayed=service.replayed_count,
         anomalies=sum(row.is_anomaly for row in rows),
         readings=[ReadingResponse.model_validate(row) for row in rows],
     )

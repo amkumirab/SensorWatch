@@ -48,9 +48,7 @@ def test_valid_api_key_allows_single_and_batch_ingestion(
 ) -> None:
     headers = {"X-API-Key": "test-ingest-key"}
 
-    single = protected_client.post(
-        "/api/v1/readings", json=reading_payload(), headers=headers
-    )
+    single = protected_client.post("/api/v1/readings", json=reading_payload(), headers=headers)
     batch = protected_client.post(
         "/api/v1/readings/batch",
         json={"readings": [{**reading_payload(), "value": 71.2}]},
@@ -91,7 +89,20 @@ def test_openapi_documents_api_key_security(client: TestClient) -> None:
     security_scheme = schema["components"]["securitySchemes"]["APIKeyHeader"]
 
     assert security_scheme == {"type": "apiKey", "in": "header", "name": "X-API-Key"}
-    assert schema["paths"]["/api/v1/readings"]["post"]["security"] == [
-        {"APIKeyHeader": []}
-    ]
+    assert schema["paths"]["/api/v1/readings"]["post"]["security"] == [{"APIKeyHeader": []}]
     assert "security" not in schema["paths"]["/api/v1/readings"]["get"]
+
+
+def test_replays_require_authentication_for_single_and_batch(protected_client):
+    payload = reading_payload() | {"event_id": "protected-event"}
+    headers = {"X-API-Key": "test-ingest-key"}
+    assert (
+        protected_client.post("/api/v1/readings", json=payload, headers=headers).status_code
+        == 201
+    )
+    for path, body in [
+        ("/api/v1/readings", payload),
+        ("/api/v1/readings/batch", {"readings": [payload]}),
+    ]:
+        assert protected_client.post(path, json=body).status_code == 401
+        assert protected_client.post(path, json=body, headers=headers).status_code == 200

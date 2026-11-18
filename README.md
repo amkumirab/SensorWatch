@@ -18,6 +18,7 @@ baseline center, and baseline scale so the result remains explainable.
 ## Features
 
 - Single and batch telemetry ingestion
+- Optional event IDs for retry-safe ingestion with conflict detection
 - Optional API key authentication for telemetry ingestion
 - Independent rolling baselines per sensor and metric
 - Robust MAD anomaly scoring with warm-up state
@@ -115,6 +116,47 @@ alembic upgrade head
 The initial migration creates the telemetry table and all query indexes. Migration behavior is
 tested against SQLite on every supported Python version and against a real PostgreSQL service
 in GitHub Actions.
+
+## Retry-safe ingestion
+
+Gateways can send an optional `event_id` to retry a reading after a timeout without
+creating duplicate telemetry or alerts:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/readings \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $SENSORWATCH_INGEST_API_KEY" \
+  -d '{"sensor_id":"pump-01","metric":"pressure","value":12,"unit":"bar","event_id":"boot7:42"}'
+```
+
+The first request returns `201 Created`. Repeating the same event returns `200 OK` with
+the original reading ID, timestamp, anomaly decision, and rule snapshot. Detection is
+not rerun, no extra alert is created, and the server receipt time is not refreshed.
+An old retry therefore does not make a stale stream appear online.
+
+- IDs are case-sensitive and scoped to `(sensor_id, metric, event_id)`. Use 1–128 ASCII
+  letters, digits, `_`, `.`, `:`, or `-`; include a boot/session prefix if counters reset.
+- Omit `event_id` or send `null` to keep ordinary ingestion behavior. Each request then
+  creates a new reading, even when its values match an earlier reading.
+- Reusing an ID with a different value, unit, or timestamp returns `409 Conflict`.
+  Numeric equivalents such as `12` and `12.0` match; an omitted unit matches `""`.
+- Explicit timestamps are compared as UTC instants; naive timestamps are treated as UTC
+  for keyed events. If `recorded_at` is omitted, retries must also omit it: the original
+  server-generated timestamp is retained. Changing from omitted to explicit is a conflict.
+
+Batch ingestion at `POST /api/v1/readings/batch` accepts the same optional field on each
+reading. Results retain input order, including repeated IDs within one batch. `accepted`
+counts input positions, `created` counts new rows, and `replayed` counts reused rows;
+`accepted = created + replayed`. `anomalies` counts anomalous input positions, including
+replayed decisions. The response is `201` when any row is new and `200` when all are replays.
+Any conflicting event rolls back the entire batch, including new readings and alerts.
+All writes and replays require the ingestion API key when authentication is enabled.
+
+The database enforces event uniqueness under concurrent requests. PostgreSQL batches acquire
+transaction-scoped event locks in a stable order to avoid reversed-batch deadlocks; SQLite
+serializes writes. Event IDs remain reserved for as long as their readings are stored.
+Existing readings are preserved with `event_id: null`. Stop the service, run
+`sensorwatch migrate`, and restart it when upgrading an existing installation.
 
 ## Alert workflow
 

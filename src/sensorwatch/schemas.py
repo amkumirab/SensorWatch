@@ -39,6 +39,13 @@ class ReadingCreate(BaseModel):
     value: float
     unit: str = Field(default="", max_length=24)
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    event_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_.:-]+$",
+        description="Optional case-sensitive event ID, unique within a sensor/metric series.",
+    )
 
     @field_validator("value")
     @classmethod
@@ -56,6 +63,7 @@ class ReadingResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    event_id: str | None = None
     sensor_id: str
     metric: str
     value: float
@@ -70,8 +78,14 @@ class ReadingResponse(BaseModel):
 
 
 class BatchResponse(BaseModel):
-    accepted: int
-    anomalies: int
+    accepted: int = Field(description="Number of input positions accepted, including replays.")
+    created: int = Field(description="Number of newly stored readings.")
+    replayed: int = Field(
+        description="Number of input positions returning an existing reading."
+    )
+    anomalies: int = Field(
+        description="Anomalous input positions, including replayed decisions."
+    )
     readings: list[ReadingResponse]
 
 

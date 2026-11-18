@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Barrier
 
 import pytest
 from fastapi.testclient import TestClient
@@ -23,7 +24,7 @@ from sensorwatch.models import (
     SensorRule,
 )
 from sensorwatch.schemas import ReadingCreate
-from sensorwatch.service import ReadingService
+from sensorwatch.service import IdempotencyConflict, ReadingService
 
 POSTGRES_URL = os.getenv("SENSORWATCH_TEST_POSTGRES_URL")
 pytestmark = pytest.mark.skipif(
@@ -79,6 +80,74 @@ def test_postgres_migration_and_reading_round_trip() -> None:
         session.rollback()
 
     engine.dispose()
+
+
+def test_postgres_concurrent_events_and_reversed_batches():
+    assert POSTGRES_URL is not None
+    engine = make_engine(normalize_database_url(POSTGRES_URL))
+    sessions = sessionmaker(bind=engine)
+    sensor = "ci-idempotency"
+    settings = Settings(
+        database_url=normalize_database_url(POSTGRES_URL),
+        detector_window=20,
+        detector_min_samples=6,
+        detector_threshold=3.5,
+        demo_enabled=False,
+    )
+    payload = ReadingCreate(sensor_id=sensor, metric="pressure", value=12, event_id="first")
+    barrier = Barrier(2)
+
+    def ingest(readings):
+        barrier.wait(timeout=10)
+        with sessions.begin() as db:
+            db.execute(text("SET LOCAL lock_timeout = '5s'"))
+            service = ReadingService(db, settings)
+            try:
+                rows = service.add_batch(readings)
+            except IdempotencyConflict:
+                db.rollback()
+                return None
+            return [row.id for row in rows], service.created_count, service.replayed_count
+
+    try:
+        with sessions.begin() as db:
+            db.add(SensorRule(sensor_id=sensor, metric="pressure", upper_bound=10))
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            results = list(workers.map(ingest, [[payload], [payload]]))
+        assert sum(result[1] for result in results) == 1
+        assert results[0][0] == results[1][0]
+        changed = payload.model_copy(update={"value": 99})
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            results = list(workers.map(ingest, [[payload], [changed]]))
+        assert results[0][1:] == (0, 1)
+        assert results[1] is None
+        second = payload.model_copy(update={"event_id": "second"})
+        third = payload.model_copy(update={"event_id": "third"})
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            results = list(workers.map(ingest, [[second, third], [third, second]]))
+        assert sorted((result[1], result[2]) for result in results) == [(0, 2), (2, 0)]
+        assert results[0][0] == list(reversed(results[1][0]))
+        with sessions() as db:
+            readings = db.scalars(
+                select(SensorReading).where(SensorReading.sensor_id == sensor)
+            ).all()
+            assert len(readings) == 3
+            alerts = db.scalars(
+                select(Alert).join(SensorReading).where(SensorReading.sensor_id == sensor)
+            ).all()
+            assert len(alerts) == 3
+    finally:
+        with sessions.begin() as db:
+            db.execute(
+                delete(Alert).where(
+                    Alert.reading_id.in_(
+                        select(SensorReading.id).where(SensorReading.sensor_id == sensor)
+                    )
+                )
+            )
+            db.execute(delete(SensorReading).where(SensorReading.sensor_id == sensor))
+            db.execute(delete(SensorRule).where(SensorRule.sensor_id == sensor))
+        engine.dispose()
 
 
 def test_postgres_monitor_serializes_and_persists_recovery():
