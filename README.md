@@ -420,11 +420,16 @@ python -m pip install -e ".[dev,postgres]"
 
 ## API overview
 
+Telemetry queries accept `limit` (default 200, maximum 1000) and `offset` (default 0).
+For example, `/api/v1/readings?sensor_id=pump&limit=100&offset=100` retrieves the next
+page for that sensor, newest first. Filters apply before pagination. New readings arriving
+between requests can shift offset-based pages.
+
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/v1/readings` | Ingest one reading; API key protected when configured |
 | `POST` | `/api/v1/readings/batch` | Ingest up to 500 readings atomically; API key protected when configured |
-| `GET` | `/api/v1/readings` | Query telemetry and anomalies |
+| `GET` | `/api/v1/readings` | Query telemetry and anomalies with `limit` and `offset` |
 | `GET` | `/api/v1/summary` | Retrieve operational totals |
 | `GET` | `/api/v1/sensors` | List sensor/metric series |
 | `GET` | `/api/v1/connectivity/incidents` | Query persistent outages, recovery times, and durations |

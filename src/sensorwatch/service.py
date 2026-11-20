@@ -278,6 +278,7 @@ def list_readings(
     metric: str | None = None,
     anomalies_only: bool = False,
     limit: int = 200,
+    offset: int = 0,
 ) -> list[SensorReading]:
     statement = select(SensorReading)
     if sensor_id:
@@ -286,9 +287,11 @@ def list_readings(
         statement = statement.where(SensorReading.metric == metric)
     if anomalies_only:
         statement = statement.where(SensorReading.is_anomaly.is_(True))
-    statement = statement.order_by(
-        desc(SensorReading.recorded_at), desc(SensorReading.id)
-    ).limit(limit)
+    statement = (
+        statement.order_by(desc(SensorReading.recorded_at), desc(SensorReading.id))
+        .offset(offset)
+        .limit(limit)
+    )
     return list(db.scalars(statement).all())
 
 

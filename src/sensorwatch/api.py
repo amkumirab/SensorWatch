@@ -242,6 +242,7 @@ def get_readings(
     metric: str | None = None,
     anomalies_only: bool = False,
     limit: Annotated[int, Query(ge=1, le=1000)] = 200,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[ReadingResponse]:
     return [
         ReadingResponse.model_validate(row)
@@ -251,6 +252,7 @@ def get_readings(
             metric=metric,
             anomalies_only=anomalies_only,
             limit=limit,
+            offset=offset,
         )
     ]
 
