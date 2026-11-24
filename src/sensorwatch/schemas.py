@@ -47,6 +47,16 @@ class ReadingCreate(BaseModel):
         description="Optional case-sensitive event ID, unique within a sensor/metric series.",
     )
 
+    @field_validator("recorded_at")
+    @classmethod
+    def normalize_recorded_at(cls, value: datetime) -> datetime:
+        if value.utcoffset() is None:
+            return value.replace(tzinfo=timezone.utc)
+        try:
+            return value.astimezone(timezone.utc)
+        except OverflowError as error:
+            raise ValueError("recorded_at is outside the supported UTC range") from error
+
     @field_validator("value")
     @classmethod
     def finite_value(cls, value: float) -> float:

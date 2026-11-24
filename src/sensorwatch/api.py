@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from fastapi import Path as ApiPath
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import AwareDatetime
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -241,9 +242,24 @@ def get_readings(
     sensor_id: str | None = None,
     metric: str | None = None,
     anomalies_only: bool = False,
+    recorded_from: AwareDatetime | None = None,
+    recorded_to: AwareDatetime | None = None,
     limit: Annotated[int, Query(ge=1, le=1000)] = 200,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[ReadingResponse]:
+    try:
+        if recorded_from is not None:
+            recorded_from = recorded_from.astimezone(timezone.utc)
+        if recorded_to is not None:
+            recorded_to = recorded_to.astimezone(timezone.utc)
+    except OverflowError as error:
+        raise HTTPException(
+            status_code=422, detail="Time filter is outside the supported UTC range"
+        ) from error
+    if recorded_from is not None and recorded_to is not None and recorded_from > recorded_to:
+        raise HTTPException(
+            status_code=422, detail="recorded_from must not be after recorded_to"
+        )
     return [
         ReadingResponse.model_validate(row)
         for row in list_readings(
@@ -251,6 +267,8 @@ def get_readings(
             sensor_id=sensor_id,
             metric=metric,
             anomalies_only=anomalies_only,
+            recorded_from=recorded_from,
+            recorded_to=recorded_to,
             limit=limit,
             offset=offset,
         )

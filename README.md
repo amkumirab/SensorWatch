@@ -425,6 +425,15 @@ For example, `/api/v1/readings?sensor_id=pump&limit=100&offset=100` retrieves th
 page for that sensor, newest first. Filters apply before pagination. New readings arriving
 between requests can shift offset-based pages.
 
+Use optional `recorded_from` and `recorded_to` to filter by sample time before pagination.
+Both bounds are inclusive and require a timezone, for example
+`/api/v1/readings?recorded_from=2026-11-24T10:00:00Z&recorded_to=2026-11-24T10:30:00Z`.
+Each bound can be used on its own. Reversed ranges return `422`.
+
+New readings are stored in UTC, with timezone-free inputs interpreted as UTC. Older SQLite
+readings submitted without an event ID and with a non-UTC offset may have lost that offset
+when stored. Filters use their stored timestamps because the original offset cannot be recovered.
+
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/v1/readings` | Ingest one reading; API key protected when configured |

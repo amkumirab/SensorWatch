@@ -25,21 +25,13 @@ class IdempotencyConflict(ValueError):
     pass
 
 
-def _utc(value: datetime) -> datetime:
-    return (
-        value.replace(tzinfo=timezone.utc)
-        if value.tzinfo is None
-        else value.astimezone(timezone.utc)
-    )
-
-
 def _request_digest(payload: ReadingCreate) -> str:
     content = {
         "value": 0.0 if payload.value == 0 else payload.value,
         "unit": payload.unit,
         # A generated server timestamp must not make an otherwise identical retry conflict.
         "recorded_at": (
-            _utc(payload.recorded_at).isoformat(timespec="microseconds")
+            payload.recorded_at.isoformat(timespec="microseconds")
             if "recorded_at" in payload.model_fields_set
             else None
         ),
@@ -79,7 +71,7 @@ class ReadingService:
                     request_digest=digest,
                     value=payload.value,
                     unit=payload.unit,
-                    recorded_at=_utc(payload.recorded_at),
+                    recorded_at=payload.recorded_at,
                 )
                 .on_conflict_do_nothing(index_elements=["sensor_id", "metric", "event_id"])
                 .returning(SensorReading.id)
@@ -277,6 +269,8 @@ def list_readings(
     sensor_id: str | None = None,
     metric: str | None = None,
     anomalies_only: bool = False,
+    recorded_from: datetime | None = None,
+    recorded_to: datetime | None = None,
     limit: int = 200,
     offset: int = 0,
 ) -> list[SensorReading]:
@@ -287,6 +281,10 @@ def list_readings(
         statement = statement.where(SensorReading.metric == metric)
     if anomalies_only:
         statement = statement.where(SensorReading.is_anomaly.is_(True))
+    if recorded_from is not None:
+        statement = statement.where(SensorReading.recorded_at >= recorded_from)
+    if recorded_to is not None:
+        statement = statement.where(SensorReading.recorded_at <= recorded_to)
     statement = (
         statement.order_by(desc(SensorReading.recorded_at), desc(SensorReading.id))
         .offset(offset)
