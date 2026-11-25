@@ -1,5 +1,8 @@
 const state = { summary: null, sensors: [], readings: [], alerts: [], selectedKey: "" };
 const $ = (selector) => document.querySelector(selector);
+const chartLimit = 120;
+let chartRange = {};
+let chartRequest = 0;
 
 function showToast(message, isError = false) {
   const toast = $("#toast");
@@ -164,8 +167,15 @@ function drawChart() {
   });
 
   context.fillStyle = "#789189";
-  const firstTime = new Date(points[0].recorded_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  const lastTime = new Date(points.at(-1).recorded_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const chartDate = (value) => new Date(/(Z|[+-]\d{2}:\d{2})$/.test(value) ? value : value + "Z");
+  const first = chartDate(points[0].recorded_at);
+  const last = chartDate(points.at(-1).recorded_at);
+  const timeFormat = { hour: "2-digit", minute: "2-digit" };
+  if (first.toDateString() !== last.toDateString()) {
+    Object.assign(timeFormat, { month: "short", day: "numeric" });
+  }
+  const firstTime = first.toLocaleString([], timeFormat);
+  const lastTime = last.toLocaleString([], timeFormat);
   context.fillText(firstTime, left, height - 6);
   context.textAlign = "right"; context.fillText(lastTime, width - right, height - 6); context.textAlign = "left";
 }
@@ -208,12 +218,46 @@ function renderAlerts() {
 }
 
 async function loadSelectedSeries() {
-  if (!state.selectedKey) { state.readings = []; drawChart(); return; }
+  const requestId = ++chartRequest;
+  const status = $("#telemetry-chart-status");
+  if (!state.selectedKey) {
+    state.readings = [];
+    status.textContent = "";
+    drawChart();
+    return;
+  }
   const [sensorId, metric] = JSON.parse(state.selectedKey);
-  state.readings = await request(`/api/v1/readings?sensor_id=${encodeURIComponent(sensorId)}&metric=${encodeURIComponent(metric)}&limit=120`);
-  const sensor = state.sensors.find((item) => seriesKey(item) === state.selectedKey);
-  $("#chart-title").textContent = sensor ? `${sensor.sensor_id} / ${sensor.metric}` : "Live telemetry";
+  const filtered = Boolean(chartRange.recorded_from || chartRange.recorded_to);
+  const params = new URLSearchParams({
+    sensor_id: sensorId, metric, limit: filtered ? chartLimit + 1 : chartLimit, ...chartRange,
+  });
+  let readings;
+  try {
+    readings = await request(`/api/v1/readings?${params}`);
+  } catch (error) {
+    if (requestId === chartRequest) {
+      status.textContent = "Could not update the chart. Displayed readings may be out of date.";
+      throw error;
+    }
+    return;
+  }
+  if (requestId !== chartRequest) return;
+  state.readings = readings.slice(0, chartLimit);
+  $("#chart-title").textContent = `${sensorId} / ${metric}`;
+  $("#chart-empty-title").textContent = filtered ? "No readings in this range" : "No telemetry yet";
+  $("#chart-empty-help").textContent = filtered
+    ? "Choose a different time range."
+    : "Generate demo data or send readings through the API.";
+  status.textContent = readings.length > chartLimit
+    ? `Showing the latest ${chartLimit} readings. Earlier readings in this range are hidden.`
+    : "";
   drawChart();
+}
+
+function setChartRange(range) {
+  chartRange = range;
+  $("#telemetry-range-error").hidden = true;
+  loadSelectedSeries().catch((error) => showToast(error.message, true));
 }
 
 async function selectSeries(key) {
@@ -246,6 +290,30 @@ async function refresh() {
 }
 
 $("#series-select").addEventListener("change", (event) => selectSeries(event.target.value));
+$("#telemetry-range").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const fromInput = $("#telemetry-from").value;
+  const toInput = $("#telemetry-to").value;
+  const from = fromInput ? new Date(fromInput) : null;
+  const to = toInput ? new Date(toInput) : null;
+  const error = $("#telemetry-range-error");
+  if ((from && !Number.isFinite(+from)) || (to && !Number.isFinite(+to))) {
+    error.textContent = "Enter valid start and end times.";
+  } else if (from && to && from > to) {
+    error.textContent = "Start time must be before or equal to end time.";
+  } else {
+    const range = {};
+    if (from) range.recorded_from = from.toISOString();
+    if (to) range.recorded_to = to.toISOString();
+    setChartRange(range);
+    return;
+  }
+  error.hidden = false;
+});
+$("#clear-telemetry-range").addEventListener("click", () => {
+  $("#telemetry-range").reset();
+  setChartRange({});
+});
 $("#alert-table").addEventListener("click", async (event) => {
   const button = event.target.closest(".alert-action");
   if (!button) return;

@@ -85,6 +85,64 @@ def seed(api, sensor="boiler-01"):
     )
 
 
+def test_telemetry_range_filters_chart_through_refresh_and_clear(dashboard):
+    page, api, url = dashboard
+    session = page.context.new_cdp_session(page)
+    session.send("Emulation.setTimezoneOverride", {"timezoneId": "Europe/Rome"})
+    start = datetime(2026, 11, 25, 9, tzinfo=timezone.utc)
+    readings = [
+        {
+            "sensor_id": "boiler-01",
+            "metric": "temperature",
+            "value": 20,
+            "recorded_at": (start + timedelta(seconds=index)).isoformat(),
+        }
+        for index in range(121)
+    ]
+    assert api.post("/api/v1/readings/batch", json={"readings": readings}).status_code == 201
+    outside = {
+        **readings[0],
+        "sensor_id": "boiler-02",
+        "recorded_at": (start - timedelta(days=1)).isoformat(),
+    }
+    assert api.post("/api/v1/readings", json=outside).status_code == 201
+    page.clock.install()
+    page.goto(url)
+    expect(page.locator("#chart-title")).to_have_text("boiler-01 / temperature")
+
+    page.locator("#telemetry-from").fill("2026-11-25T10:00")
+    page.locator("#telemetry-to").fill("2026-11-25T10:02")
+    with page.expect_response(lambda response: "recorded_from=" in response.url) as request:
+        page.get_by_role("button", name="Apply range").click()
+    assert len(request.value.json()) == 121
+    assert "2026-11-25T09%3A00%3A00.000Z" in request.value.url
+    status = page.locator("#telemetry-chart-status")
+    expect(status).to_contain_text("Showing the latest 120 readings")
+
+    with page.expect_response(lambda response: "recorded_from=" in response.url):
+        page.clock.fast_forward(10_000)
+    expect(status).to_contain_text("Showing the latest 120 readings")
+
+    page.get_by_role("combobox", name="Sensor series").select_option(
+        label="boiler-02 · temperature"
+    )
+    expect(page.locator("#chart-empty")).to_be_visible()
+    expect(page.locator("#chart-empty")).to_contain_text("No readings in this range")
+    page.locator("#telemetry-to").fill("2026-11-25T09:00")
+    page.get_by_role("button", name="Apply range").click()
+    expect(page.locator("#telemetry-range-error")).to_contain_text("Start time must be")
+    page.get_by_role("button", name="Clear range").click()
+    expect(page.locator("#telemetry-from")).to_have_value("")
+    expect(page.locator("#telemetry-to")).to_have_value("")
+    expect(page.locator("#chart-empty")).to_be_hidden()
+    expect(page.locator("#telemetry-range-error")).to_be_hidden()
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.locator("#telemetry-range").evaluate(
+        "(form) => form.scrollWidth <= form.clientWidth"
+    )
+
+
 def test_create_edit_delete_and_apply_rule(dashboard):
     page, api, url = dashboard
     seed(api)

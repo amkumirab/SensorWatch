@@ -157,6 +157,8 @@ input {
 }
 
 .chart-wrap { height: 330px; margin-top: 22px; position: relative; }
+.telemetry-range { margin-top: 16px; }
+#telemetry-chart-status:empty { margin: 0; }
 #telemetry-chart { width: 100%; height: 100%; display: block; }
 .empty-state { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); gap: 7px; }
 .empty-state strong { color: var(--text); }

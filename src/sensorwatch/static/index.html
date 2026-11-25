@@ -69,11 +69,25 @@
               <option value="">No series available</option>
             </select>
           </div>
+          <form id="telemetry-range" class="incident-filters telemetry-range" aria-label="Telemetry time range">
+            <div>
+              <label for="telemetry-from">From (local time)</label>
+              <input id="telemetry-from" type="datetime-local" />
+            </div>
+            <div>
+              <label for="telemetry-to">To (local time)</label>
+              <input id="telemetry-to" type="datetime-local" />
+            </div>
+            <button type="submit" class="button compact">Apply range</button>
+            <button id="clear-telemetry-range" type="button" class="button compact">Clear range</button>
+          </form>
+          <p id="telemetry-range-error" class="rule-help rule-error" role="alert" hidden></p>
+          <p id="telemetry-chart-status" class="rule-help" role="status"></p>
           <div class="chart-wrap">
             <canvas id="telemetry-chart" aria-label="Sensor telemetry chart"></canvas>
             <div id="chart-empty" class="empty-state">
-              <strong>No telemetry yet</strong>
-              <span>Generate demo data or send readings through the API.</span>
+              <strong id="chart-empty-title">No telemetry yet</strong>
+              <span id="chart-empty-help">Generate demo data or send readings through the API.</span>
             </div>
           </div>
           <div class="legend">

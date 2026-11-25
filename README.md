@@ -31,6 +31,7 @@ baseline center, and baseline scale so the result remains explainable.
 - Monitor heartbeat, last-run counts, and explicit health/readiness status
 - Summary, fleet, telemetry, and anomaly APIs
 - Responsive dependency-free monitoring dashboard
+- Telemetry chart with an optional local time range
 - Deterministic three-sensor demo-data generator
 - OpenAPI documentation at `/docs`
 - Unit and API integration tests
@@ -429,6 +430,11 @@ Use optional `recorded_from` and `recorded_to` to filter by sample time before p
 Both bounds are inclusive and require a timezone, for example
 `/api/v1/readings?recorded_from=2026-11-24T10:00:00Z&recorded_to=2026-11-24T10:30:00Z`.
 Each bound can be used on its own. Reversed ranges return `422`.
+
+In the dashboard, use **Apply range** to filter the selected chart by your local time.
+The range persists during automatic refresh and series changes. The chart shows up to
+120 readings and indicates when the range contains more. **Clear range** restores the
+latest readings.
 
 New readings are stored in UTC, with timezone-free inputs interpreted as UTC. Older SQLite
 readings submitted without an event ID and with a non-UTC offset may have lost that offset
